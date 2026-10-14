@@ -1,1 +1,30 @@
 @import "tailwindcss";
+
+@theme {
+  --color-bunda-pink: #FF7B9C;
+  --color-bunda-lightpink: #FFF0F4;
+  --color-bunda-teal: #2EC4B6;
+  --color-bunda-lightteal: #E6F9F7;
+  --color-bunda-yellow: #FF9F1C;
+  --color-bunda-softbg: #FFFBF9;
+  --color-bunda-dark: #2D3748;
+  --color-bunda-card: #FFFFFF;
+}
+
+body {
+  background-color: #FFFBF9;
+  font-family: 'Nunito', 'Inter', sans-serif;
+  color: #2D3748;
+}
+
+.scribd-shadow {
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
