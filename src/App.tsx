@@ -4,11 +4,20 @@ import {
   dbSaveWebhook,
   dbSaveVideo,
   dbDeleteVideo,
+  dbSavePdfBook,
+  dbDeletePdfBook,
   subscribeToVisitorLogs,
   subscribeToWebhookSettings,
   subscribeToVideos,
+  subscribeToPdfBooks,
   sendToGoogleSheet,
 } from './services/firebaseSync';
+import {
+  savePdfBookToIndexedDB,
+  getAllPdfBooksFromIndexedDB,
+  deletePdfBookFromIndexedDB,
+  base64ToBlobUrl,
+} from './utils/pdfStorage';
 
 interface UserData {
   nama: string;
@@ -294,15 +303,19 @@ export default function App() {
     title: string;
     ageCategory: string;
     fileName: string;
+    fileSize?: string;
     pdfFileUrl: string;
     description: string;
+    jumpToMpasiPage?: boolean;
   }>({
     id: '',
     title: '',
     ageCategory: '6 - 8 Bulan',
     fileName: '',
+    fileSize: '',
     pdfFileUrl: '',
     description: '',
+    jumpToMpasiPage: true,
   });
 
   const logoFileInputRef = useRef<HTMLInputElement>(null);
@@ -348,19 +361,33 @@ export default function App() {
       setWhatsappNumber(savedWa);
     }
 
-    // 3. Saved PDF Books
-    const savedPdfBooks = localStorage.getItem('si_bunda_pdf_books');
-    if (savedPdfBooks) {
+    // 3. Saved PDF Books (Priority: IndexedDB for high capacity, fallback to localStorage)
+    const loadSavedPdfBooks = async () => {
       try {
-        const parsed = JSON.parse(savedPdfBooks);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setPdfBooks(parsed);
-          setSelectedPdf(parsed[0]);
+        const idbBooks = await getAllPdfBooksFromIndexedDB();
+        if (idbBooks && Array.isArray(idbBooks) && idbBooks.length > 0) {
+          setPdfBooks(idbBooks);
+          setSelectedPdf(idbBooks[0]);
+          return;
         }
-      } catch {
-        // use default
+      } catch (err) {
+        console.warn('Error reading from IndexedDB:', err);
       }
-    }
+
+      const savedPdfBooks = localStorage.getItem('si_bunda_pdf_books');
+      if (savedPdfBooks) {
+        try {
+          const parsed = JSON.parse(savedPdfBooks);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setPdfBooks(parsed);
+            setSelectedPdf(parsed[0]);
+          }
+        } catch {
+          // use default
+        }
+      }
+    };
+    loadSavedPdfBooks();
 
     // 4. Saved Logs
     const savedLogs = localStorage.getItem('si_bunda_logs');
@@ -426,10 +453,28 @@ export default function App() {
       }
     });
 
+    const unsubPdfBooks = subscribeToPdfBooks((books) => {
+      if (Array.isArray(books) && books.length > 0) {
+        setPdfBooks((prev) => {
+          const merged = [...prev];
+          books.forEach((b) => {
+            const idx = merged.findIndex((m) => m.id === b.id);
+            if (idx === -1) {
+              merged.push(b);
+            } else if (!merged[idx].pdfFileUrl && b.pdfFileUrl) {
+              merged[idx] = { ...merged[idx], ...b };
+            }
+          });
+          return merged;
+        });
+      }
+    });
+
     return () => {
       unsubLogs();
       unsubWebhook();
       unsubVideos();
+      unsubPdfBooks();
     };
   }, []);
 
@@ -611,8 +656,10 @@ export default function App() {
         title: bookToEdit.title,
         ageCategory: bookToEdit.ageCategory || '6 - 8 Bulan',
         fileName: bookToEdit.fileName || '',
+        fileSize: bookToEdit.fileSize || '',
         pdfFileUrl: bookToEdit.pdfFileUrl || '',
         description: bookToEdit.pages?.[0]?.nutritionNote || '',
+        jumpToMpasiPage: true,
       });
     } else {
       setEditingPdfBook({
@@ -620,8 +667,10 @@ export default function App() {
         title: '',
         ageCategory: '6 - 8 Bulan',
         fileName: '',
+        fileSize: '',
         pdfFileUrl: '',
         description: '',
+        jumpToMpasiPage: true,
       });
     }
     setShowPdfFormModal(true);
@@ -636,9 +685,8 @@ export default function App() {
       return;
     }
 
-    // Limit to 15MB for local storage storage
-    if (file.size > 15 * 1024 * 1024) {
-      alert('Ukuran file PDF terlalu besar (maksimal 15 MB). Anda juga dapat memasukkan tautan Google Drive/Cloud.');
+    if (file.size > 25 * 1024 * 1024) {
+      alert('Ukuran file PDF terlalu besar (maksimal 25 MB). Anda juga dapat memasukkan tautan Google Drive / Cloud.');
       return;
     }
 
@@ -649,6 +697,7 @@ export default function App() {
       setEditingPdfBook((prev) => ({
         ...prev,
         fileName: file.name,
+        fileSize: sizeFormatted,
         pdfFileUrl: base64,
         title: prev.title || file.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' '),
       }));
@@ -657,7 +706,7 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  const savePdfBookForm = (e: React.FormEvent) => {
+  const savePdfBookForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingPdfBook.title.trim()) return;
 
@@ -667,6 +716,7 @@ export default function App() {
       title: editingPdfBook.title.trim(),
       ageCategory: editingPdfBook.ageCategory,
       fileName: editingPdfBook.fileName || `${editingPdfBook.title}.pdf`,
+      fileSize: editingPdfBook.fileSize || 'Dokumen PDF',
       pdfFileUrl: editingPdfBook.pdfFileUrl,
       downloadUrl: editingPdfBook.pdfFileUrl || '#',
       uploadedAt: new Date().toLocaleDateString('id-ID', { dateStyle: 'medium' }),
@@ -676,43 +726,80 @@ export default function App() {
           ageCategory: editingPdfBook.ageCategory,
           image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80',
           ingredients: [
-            'Bahan pangan lokal berkualitas',
-            'Ikan segar atau protein hewani pilihan',
-            'Sayur kaya serat dan vitamin',
-            'Lemak sehat penunjang kalori',
+            'Bahan pangan lokal berkualitas tinggi khas Kepulauan Bangka Belitung',
+            'Sumber protein hewani pilihan (ikan tenggiri / kembung, telur, ayam, hati sapi)',
+            'Sayur segar kaya serat dan vitamin (bayam, wortel, kelor, labu kuning)',
+            'Lemak sehat tambahan penunjang energi (minyak kelapa, santan, mentega)',
           ],
           steps: [
-            'Siapkan bahan-bahan segar sesuai takaran.',
-            'Olah dengan higienis untuk menjaga keutuhan zat gizi.',
-            'Sesuaikan tekstur dengan usia si kecil.',
-            'Sajikan dalam keadaan hangat dan higienis.',
+            'Siapkan bahan-bahan segar sesuai porsi makan balita.',
+            'Olah dengan cara higienis sesuai panduan di dalam dokumen buku PDF ini.',
+            'Sesuaikan tekstur masakan dengan tahapan usia si kecil.',
+            'Sajikan dalam keadaan hangat dengan jadwal makan yang teratur.',
           ],
-          nutritionNote: editingPdfBook.description || 'Pedoman resmi MP-ASI bergizi seimbang untuk tumbuh kembang optimal anak.',
+          nutritionNote:
+            editingPdfBook.description ||
+            'Buku panduan resep resmi MP-ASI bergizi seimbang untuk mendukung kecerdasan otak & pencegahan stunting balita.',
         },
       ],
     };
 
+    // 1. Save to high-capacity IndexedDB (handles files up to 100MB+)
+    await savePdfBookToIndexedDB(newBook);
+
+    // 2. Sync to Firebase Firestore
+    dbSavePdfBook(newBook);
+
+    // 3. Update React state
     setPdfBooks((prev) => {
       const idx = prev.findIndex((b) => b.id === bookId);
-      const updated = idx !== -1 ? prev.map((b) => (b.id === bookId ? newBook : b)) : [...prev, newBook];
-      localStorage.setItem('si_bunda_pdf_books', JSON.stringify(updated));
+      const updated = idx !== -1 ? prev.map((b) => (b.id === bookId ? newBook : b)) : [newBook, ...prev];
+
+      // Safely write metadata to localStorage without crashing on quota
+      try {
+        const forStorage = updated.map((b) => {
+          if (b.pdfFileUrl && b.pdfFileUrl.length > 200000) {
+            const { pdfFileUrl, ...rest } = b;
+            return { ...rest, pdfFileUrl: '' };
+          }
+          return b;
+        });
+        localStorage.setItem('si_bunda_pdf_books', JSON.stringify(forStorage));
+      } catch (err) {
+        console.warn('LocalStorage quota warning (saved in IndexedDB):', err);
+      }
       return updated;
     });
 
-    if (selectedPdf.id === bookId || !selectedPdf) {
-      setSelectedPdf(newBook);
+    // 4. Immediately select the newly uploaded PDF and activate the reader
+    setSelectedPdf(newBook);
+    if (newBook.pdfFileUrl) {
+      setPdfViewMode('embed');
     }
 
     setShowPdfFormModal(false);
-    showToast('Buku & File PDF Resep MP-ASI berhasil disimpan!');
+
+    // 5. Navigate to MPASI page so user/admin immediately sees the new recipe addition
+    if (editingPdfBook.jumpToMpasiPage !== false) {
+      setCurrentPage('mpasi');
+    }
+
+    showToast(`Buku "${newBook.title}" berhasil diunggah! Koleksi resep di Halaman Resep MP-ASI kini telah bertambah.`);
   };
 
-  const executeDeletePdf = () => {
+  const executeDeletePdf = async () => {
     if (!deletingPdfTarget) return;
+    const targetId = deletingPdfTarget;
+
+    await deletePdfBookFromIndexedDB(targetId);
+    dbDeletePdfBook(targetId);
+
     setPdfBooks((prev) => {
-      const updated = prev.filter((b) => b.id !== deletingPdfTarget);
-      localStorage.setItem('si_bunda_pdf_books', JSON.stringify(updated));
-      if (selectedPdf.id === deletingPdfTarget && updated.length > 0) {
+      const updated = prev.filter((b) => b.id !== targetId);
+      try {
+        localStorage.setItem('si_bunda_pdf_books', JSON.stringify(updated));
+      } catch {}
+      if (selectedPdf.id === targetId && updated.length > 0) {
         setSelectedPdf(updated[0]);
       }
       return updated;
@@ -1475,18 +1562,173 @@ export default function App() {
               </div>
             </div>
 
-            {/* PDF Tabs */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
+            {/* 1. KOLEKSI BUKU & PANDUAN RESEP MP-ASI (BERSIFAT DINAMIS DARI UPLOAD ADMIN) */}
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-black text-gray-800 flex items-center gap-2">
+                    <i className="fa-solid fa-layer-group text-[#FF9F1C]"></i>
+                    <span>Koleksi Buku & Panduan Resep MP-ASI</span>
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Klik buku resep di bawah untuk membuka dan membaca panduan, atau unduh langsung file PDF resminya.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs bg-amber-100 text-amber-900 font-extrabold px-3 py-1 rounded-full">
+                    {pdfBooks.length} Dokumen Resep Tersedia
+                  </span>
+                  {isAdmin && (
+                    <button
+                      onClick={() => openPdfModal()}
+                      className="bg-[#FF9F1C] hover:bg-amber-600 text-white font-bold px-3.5 py-1.5 rounded-xl text-xs shadow flex items-center gap-1.5 transition"
+                    >
+                      <i className="fa-solid fa-file-circle-plus"></i>
+                      <span>+ Upload PDF Baru</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Grid of Books & Uploaded PDFs */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {pdfBooks.map((book) => {
+                  const isSelected = selectedPdf.id === book.id;
+                  return (
+                    <div
+                      key={book.id}
+                      className={`bg-white rounded-2xl p-5 border transition-all duration-300 flex flex-col justify-between space-y-4 relative ${
+                        isSelected
+                          ? 'border-2 border-[#FF9F1C] shadow-lg ring-4 ring-amber-100/60'
+                          : 'border-gray-200 shadow-2xs hover:shadow-md hover:border-amber-300'
+                      }`}
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="bg-amber-100 text-amber-900 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wide">
+                            {book.ageCategory || 'MP-ASI'}
+                          </span>
+                          {book.pdfFileUrl ? (
+                            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <i className="fa-solid fa-file-pdf text-emerald-600"></i> File PDF Aktif ({book.fileSize || 'Tersedia'})
+                            </span>
+                          ) : (
+                            <span className="bg-gray-100 text-gray-600 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                              Resep Digital
+                            </span>
+                          )}
+                        </div>
+
+                        <div>
+                          <h4 className="font-bold text-gray-900 text-sm sm:text-base leading-snug line-clamp-2">
+                            {book.title}
+                          </h4>
+                          <p className="text-[11px] sm:text-xs text-gray-500 mt-1 line-clamp-2">
+                            {book.pages?.[0]?.nutritionNote || 'Buku resep panduan ahli gizi dengan bahan pangan lokal bergizi seimbang.'}
+                          </p>
+                        </div>
+
+                        {book.fileName && (
+                          <div className="text-[10px] font-mono text-gray-500 bg-gray-50 p-1.5 rounded-lg truncate flex items-center gap-1.5 border border-gray-100">
+                            <i className="fa-solid fa-file-arrow-down text-amber-600"></i>
+                            <span className="truncate">{book.fileName}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPdf(book);
+                            if (book.pdfFileUrl) {
+                              setPdfViewMode('embed');
+                            }
+                            const readerElem = document.getElementById('mpasi-reader');
+                            if (readerElem) {
+                              readerElem.scrollIntoView({ behavior: 'smooth' });
+                            }
+                          }}
+                          className={`text-xs font-extrabold px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-amber-500 text-white shadow-xs'
+                              : 'bg-amber-50 hover:bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          <i className="fa-solid fa-book-open"></i>
+                          <span>{isSelected ? 'Sedang Dibaca' : 'Buka Resep'}</span>
+                        </button>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => downloadPdfFile(book)}
+                            className="text-xs font-bold text-gray-600 hover:text-amber-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
+                            title="Unduh File PDF ini"
+                          >
+                            <i className="fa-solid fa-download"></i>
+                          </button>
+
+                          {isAdmin && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openPdfModal(book)}
+                                className="text-xs font-bold text-blue-600 hover:text-blue-800 p-1.5 rounded-lg hover:bg-blue-50 transition"
+                                title="Edit buku PDF ini"
+                              >
+                                <i className="fa-solid fa-pen-to-square"></i>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingPdfTarget(book.id)}
+                                className="text-xs font-bold text-red-500 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition"
+                                title="Hapus buku PDF ini"
+                              >
+                                <i className="fa-solid fa-trash-can"></i>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Admin Quick Card to Upload PDF */}
+                {isAdmin && (
+                  <div
+                    onClick={() => openPdfModal()}
+                    className="border-2 border-dashed border-amber-300 hover:border-amber-500 bg-amber-50/40 hover:bg-amber-50/80 rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer transition group min-h-[170px]"
+                  >
+                    <div className="w-12 h-12 rounded-full bg-amber-200 text-amber-800 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                      <i className="fa-solid fa-file-arrow-up text-xl"></i>
+                    </div>
+                    <span className="font-extrabold text-sm text-gray-800 block">Unggah Buku & File PDF Baru</span>
+                    <span className="text-[11px] text-gray-500 mt-1">
+                      Tambahkan dokumen PDF resep baru agar muncul di daftar koleksi ini
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Quick Switcher Tabs */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar pt-2">
+              <span className="text-xs font-bold text-gray-400 shrink-0">Pilihan Cepat:</span>
               {pdfBooks.map((book) => (
                 <button
                   key={book.id}
                   onClick={() => {
                     setSelectedPdf(book);
                     setPdfZoom(100);
+                    if (book.pdfFileUrl) {
+                      setPdfViewMode('embed');
+                    }
                   }}
-                  className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm whitespace-nowrap transition-all flex items-center gap-2 ${
+                  className={`px-3 py-1.5 rounded-xl text-xs whitespace-nowrap transition-all flex items-center gap-1.5 ${
                     selectedPdf.id === book.id
-                      ? 'bg-[#FF9F1C] text-white font-extrabold shadow-md'
+                      ? 'bg-[#FF9F1C] text-white font-extrabold shadow-sm'
                       : 'bg-white text-gray-700 border border-gray-200 hover:bg-amber-50'
                   }`}
                 >
@@ -1496,8 +1738,8 @@ export default function App() {
               ))}
             </div>
 
-            {/* SCRIBD DOCUMENT VIEWER */}
-            <div className="bg-gray-800 rounded-3xl shadow-xl overflow-hidden border border-gray-700">
+            {/* 2. SCRIBD & PDF DOCUMENT VIEWER */}
+            <div id="mpasi-reader" className="bg-gray-800 rounded-3xl shadow-xl overflow-hidden border border-gray-700">
               <div className="bg-gray-900 text-white px-4 py-3 border-b border-gray-800 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <i className="fa-solid fa-book-open text-[#FF9F1C]"></i>
@@ -1516,20 +1758,22 @@ export default function App() {
                   {selectedPdf.pdfFileUrl && (
                     <div className="flex bg-gray-800 rounded-xl p-0.5 border border-gray-700">
                       <button
-                        onClick={() => setPdfViewMode('scribd')}
-                        className={`px-2 py-1 rounded-lg text-[11px] font-bold transition ${
-                          pdfViewMode === 'scribd' ? 'bg-[#FF9F1C] text-white' : 'text-gray-400 hover:text-white'
-                        }`}
-                      >
-                        Scribd
-                      </button>
-                      <button
+                        type="button"
                         onClick={() => setPdfViewMode('embed')}
-                        className={`px-2 py-1 rounded-lg text-[11px] font-bold transition ${
-                          pdfViewMode === 'embed' ? 'bg-[#FF9F1C] text-white' : 'text-gray-400 hover:text-white'
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${
+                          pdfViewMode === 'embed' ? 'bg-[#FF9F1C] text-white shadow' : 'text-gray-400 hover:text-white'
                         }`}
                       >
                         File PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPdfViewMode('scribd')}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${
+                          pdfViewMode === 'scribd' ? 'bg-[#FF9F1C] text-white shadow' : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        Scribd
                       </button>
                     </div>
                   )}
@@ -1537,6 +1781,7 @@ export default function App() {
                   {pdfViewMode === 'scribd' && (
                     <div className="flex items-center bg-gray-800 rounded-xl px-2 py-1 border border-gray-700">
                       <button
+                        type="button"
                         onClick={() => setPdfZoom((prev) => (prev > 70 ? prev - 10 : prev))}
                         className="hover:text-[#FF9F1C] px-1"
                         title="Zoom Out"
@@ -1545,6 +1790,7 @@ export default function App() {
                       </button>
                       <span className="px-2 font-mono text-gray-300">{pdfZoom}%</span>
                       <button
+                        type="button"
                         onClick={() => setPdfZoom((prev) => (prev < 150 ? prev + 10 : prev))}
                         className="hover:text-[#FF9F1C] px-1"
                         title="Zoom In"
@@ -1555,6 +1801,7 @@ export default function App() {
                   )}
 
                   <button
+                    type="button"
                     onClick={() => downloadPdfFile(selectedPdf)}
                     className="bg-[#FF9F1C] hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 transition"
                     title="Unduh File PDF Resep"
@@ -1567,12 +1814,65 @@ export default function App() {
 
               {/* View Mode: Embedded PDF Viewer */}
               {pdfViewMode === 'embed' && selectedPdf.pdfFileUrl ? (
-                <div className="w-full h-[650px] bg-gray-900">
-                  <iframe
-                    src={selectedPdf.pdfFileUrl}
-                    title={selectedPdf.title}
-                    className="w-full h-full border-0"
-                  />
+                <div className="w-full bg-gray-900 flex flex-col">
+                  {/* Top Bar for File PDF Mode */}
+                  <div className="bg-gray-800/90 px-4 py-2 border-b border-gray-700/80 flex flex-wrap items-center justify-between text-xs text-gray-300 gap-2">
+                    <div className="flex items-center gap-2">
+                      <i className="fa-solid fa-file-pdf text-[#FF9F1C]"></i>
+                      <span className="font-mono text-[11px] text-amber-200 truncate max-w-xs">
+                        {selectedPdf.fileName || `${selectedPdf.title}.pdf`}
+                      </span>
+                      {selectedPdf.fileSize && (
+                        <span className="text-[10px] text-gray-400">({selectedPdf.fileSize})</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const url = base64ToBlobUrl(selectedPdf.pdfFileUrl!);
+                          window.open(url, '_blank');
+                        }}
+                        className="bg-gray-700 hover:bg-gray-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                      >
+                        <i className="fa-solid fa-arrow-up-right-from-square"></i>
+                        <span>Buka Layar Penuh</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadPdfFile(selectedPdf)}
+                        className="bg-amber-500 hover:bg-amber-600 text-gray-900 px-3 py-1 rounded-lg text-xs font-extrabold flex items-center gap-1 transition"
+                      >
+                        <i className="fa-solid fa-download"></i>
+                        <span>Unduh File</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="w-full h-[650px] sm:h-[800px] relative bg-gray-950">
+                    <object
+                      data={base64ToBlobUrl(selectedPdf.pdfFileUrl)}
+                      type="application/pdf"
+                      className="w-full h-full border-0"
+                    >
+                      <iframe
+                        src={base64ToBlobUrl(selectedPdf.pdfFileUrl)}
+                        title={selectedPdf.title}
+                        className="w-full h-full border-0"
+                      >
+                        <div className="p-8 text-center text-white space-y-4">
+                          <p>File PDF berhasil dimuat.</p>
+                          <button
+                            type="button"
+                            onClick={() => downloadPdfFile(selectedPdf)}
+                            className="bg-amber-500 text-black px-4 py-2 rounded-xl font-bold"
+                          >
+                            Unduh File PDF Sekarang
+                          </button>
+                        </div>
+                      </iframe>
+                    </object>
+                  </div>
                 </div>
               ) : (
                 /* View Mode: Scribd Multi-Page Vertical Continuous Scroll */
@@ -1942,13 +2242,30 @@ export default function App() {
                       </div>
 
                       <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
-                        <button
-                          type="button"
-                          onClick={() => downloadPdfFile(book)}
-                          className="text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1"
-                        >
-                          <i className="fa-solid fa-download"></i> Uji Unduh
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedPdf(book);
+                              if (book.pdfFileUrl) {
+                                setPdfViewMode('embed');
+                              }
+                              changePage('mpasi');
+                            }}
+                            className="text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition border border-amber-200"
+                            title="Buka buku ini di Halaman Resep MP-ASI"
+                          >
+                            <i className="fa-solid fa-book-open"></i> Buka di Halaman Resep
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadPdfFile(book)}
+                            className="text-xs font-bold text-gray-500 hover:text-amber-700 p-1.5 rounded-lg hover:bg-gray-100 transition"
+                            title="Uji Unduh File PDF"
+                          >
+                            <i className="fa-solid fa-download"></i>
+                          </button>
+                        </div>
 
                         <div className="flex items-center gap-3">
                           <button
@@ -2524,6 +2841,19 @@ export default function App() {
                 />
               </div>
 
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-900 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="jumpToMpasiCheck"
+                  checked={editingPdfBook.jumpToMpasiPage !== false}
+                  onChange={(e) => setEditingPdfBook({ ...editingPdfBook, jumpToMpasiPage: e.target.checked })}
+                  className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                />
+                <label htmlFor="jumpToMpasiCheck" className="cursor-pointer font-semibold">
+                  Langsung buka Halaman Resep MP-ASI dan aktifkan buku ini setelah disimpan
+                </label>
+              </div>
+
               <div className="flex gap-2 pt-2 border-t">
                 <button
                   type="button"
@@ -2534,9 +2864,10 @@ export default function App() {
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 bg-[#FF9F1C] hover:bg-amber-600 text-white font-bold py-2.5 rounded-xl text-xs shadow"
+                  className="w-1/2 bg-[#FF9F1C] hover:bg-amber-600 text-white font-bold py-2.5 rounded-xl text-xs shadow flex items-center justify-center gap-1.5"
                 >
-                  Simpan Buku PDF
+                  <i className="fa-solid fa-cloud-arrow-up"></i>
+                  <span>Simpan & Tambahkan ke Resep</span>
                 </button>
               </div>
             </form>

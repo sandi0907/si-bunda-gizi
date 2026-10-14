@@ -160,3 +160,53 @@ export const subscribeToVideos = (callback: (videos: any[]) => void) => {
     return () => {};
   }
 };
+
+export const dbSavePdfBook = async (book: any) => {
+  if (!db) return;
+  try {
+    if (authPromise) await authPromise;
+    const bookId = book.id ? String(book.id) : `pdf-${Date.now()}`;
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'pdf_books', bookId);
+
+    const firestoreData = { ...book, id: bookId };
+    if (firestoreData.pdfFileUrl && firestoreData.pdfFileUrl.length > 500000) {
+      delete firestoreData.pdfFileUrl;
+    }
+    await setDoc(docRef, firestoreData, { merge: true });
+  } catch (e) {
+    console.warn('Save PDF book error in firestore:', e);
+  }
+};
+
+export const dbDeletePdfBook = async (bookId: string) => {
+  if (!db) return;
+  try {
+    if (authPromise) await authPromise;
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'pdf_books', String(bookId));
+    await deleteDoc(docRef);
+  } catch (e) {
+    console.warn('Delete PDF book error in firestore:', e);
+  }
+};
+
+export const subscribeToPdfBooks = (callback: (books: any[]) => void) => {
+  if (!db) return () => {};
+  try {
+    const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'pdf_books');
+    return onSnapshot(
+      colRef,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const list: any[] = [];
+          snapshot.forEach((docSnap) => {
+            list.push({ id: docSnap.id, ...docSnap.data() });
+          });
+          callback(list);
+        }
+      },
+      (err) => console.warn('Firestore PDF books listener error:', err)
+    );
+  } catch {
+    return () => {};
+  }
+};
