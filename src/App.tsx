@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   dbAddVisitorLog,
   dbSaveWebhook,
@@ -46,6 +46,11 @@ interface PdfBook {
   id: string;
   title: string;
   downloadUrl?: string;
+  pdfFileUrl?: string; // base64 data URL or direct link
+  fileName?: string;
+  fileSize?: string;
+  uploadedAt?: string;
+  ageCategory?: string;
   pages: RecipePage[];
 }
 
@@ -158,7 +163,9 @@ const DEFAULT_PDF_BOOKS: PdfBook[] = [
   {
     id: 'mpasi-6-8',
     title: 'Buku Resep MP ASI Usia 6-8 Bulan (Tekstur Saring)',
+    ageCategory: '6 - 8 Bulan',
     downloadUrl: '#',
+    fileName: 'Buku_Resep_MPASI_6-8_Bulan.pdf',
     pages: [
       {
         recipeTitle: 'Bubur Lumat Puree Ikan Tenggiri & Labu Kuning',
@@ -201,7 +208,9 @@ const DEFAULT_PDF_BOOKS: PdfBook[] = [
   {
     id: 'mpasi-9-11',
     title: 'Buku Resep MP ASI Usia 9-11 Bulan (Tekstur Cincang)',
+    ageCategory: '9 - 11 Bulan',
     downloadUrl: '#',
+    fileName: 'Buku_Resep_MPASI_9-11_Bulan.pdf',
     pages: [
       {
         recipeTitle: 'Nasi Tim Cincang Daging Sapi & Bayam',
@@ -231,23 +240,30 @@ export default function App() {
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [showAdminLoginModal, setShowAdminLoginModal] = useState(false);
   const [showVideoFormModal, setShowVideoFormModal] = useState(false);
+  const [showPdfFormModal, setShowPdfFormModal] = useState(false);
   const [showScriptModal, setShowScriptModal] = useState(false);
   const [welcomeTab, setWelcomeTab] = useState<'user' | 'admin'>('user');
 
   const [isAdmin, setIsAdmin] = useState(false);
-  const [adminTab, setAdminTab] = useState<'analytics' | 'videos'>('analytics');
+  const [adminTab, setAdminTab] = useState<'analytics' | 'videos' | 'pdfs' | 'branding'>('analytics');
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
 
   const [activeVideoId, setActiveVideoId] = useState<string | number | null>(null);
-  const [whatsappNumber] = useState('6281234567890');
+  const [whatsappNumber, setWhatsappNumber] = useState('6281234567890');
+
+  // Custom Logo and Header GIF
+  const [customLogoUrl, setCustomLogoUrl] = useState<string>('');
   const [customHeaderGif, setCustomHeaderGif] = useState<string>(
     'https://6ac6859d70fa33769150f041.imgix.net/Biru%20Hijau%20dan%20Merah%20Muda%20Belajar%20Bersama%20Anak-Anak%20Youtube%20Intro-2.gif?ixembed=1791395370108&auto=format,compress'
   );
+
   const [pdfZoom, setPdfZoom] = useState(100);
+  const [pdfViewMode, setPdfViewMode] = useState<'scribd' | 'embed'>('scribd');
   const [searchLog, setSearchLog] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const [deletingVideoTarget, setDeletingVideoTarget] = useState<{ id: string | number; category: 'gizi' | 'kms' } | null>(null);
+  const [deletingPdfTarget, setDeletingPdfTarget] = useState<string | null>(null);
 
   const [googleSheetWebhook, setGoogleSheetWebhook] = useState('');
 
@@ -260,6 +276,7 @@ export default function App() {
   const [visitorLogs, setVisitorLogs] = useState<VisitorLog[]>([]);
   const [giziVideos, setGiziVideos] = useState<VideoItem[]>(DEFAULT_GIZI_VIDEOS);
   const [kmsVideos, setKmsVideos] = useState<VideoItem[]>(DEFAULT_KMS_VIDEOS);
+  const [pdfBooks, setPdfBooks] = useState<PdfBook[]>(DEFAULT_PDF_BOOKS);
   const [selectedPdf, setSelectedPdf] = useState<PdfBook>(DEFAULT_PDF_BOOKS[0]);
 
   // Video Form
@@ -270,6 +287,26 @@ export default function App() {
     youtubeId: '',
     description: '',
   });
+
+  // PDF Book Form
+  const [editingPdfBook, setEditingPdfBook] = useState<{
+    id: string;
+    title: string;
+    ageCategory: string;
+    fileName: string;
+    pdfFileUrl: string;
+    description: string;
+  }>({
+    id: '',
+    title: '',
+    ageCategory: '6 - 8 Bulan',
+    fileName: '',
+    pdfFileUrl: '',
+    description: '',
+  });
+
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
+  const pdfFileInputRef = useRef<HTMLInputElement>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -285,18 +322,47 @@ export default function App() {
 
   // Initialization
   useEffect(() => {
-    // 1. Saved Webhook
+    // 1. Saved Webhook & Admin Session
     const savedWebhook = localStorage.getItem('si_bunda_webhook');
     if (savedWebhook) {
       setGoogleSheetWebhook(savedWebhook);
     }
 
-    // 2. Admin Session
     if (localStorage.getItem('si_bunda_admin_session') === 'true') {
       setIsAdmin(true);
     }
 
-    // 3. Saved Logs
+    // 2. Custom Logo & Header GIF
+    const savedLogo = localStorage.getItem('si_bunda_custom_logo');
+    if (savedLogo) {
+      setCustomLogoUrl(savedLogo);
+    }
+
+    const savedGif = localStorage.getItem('si_bunda_header_gif');
+    if (savedGif) {
+      setCustomHeaderGif(savedGif);
+    }
+
+    const savedWa = localStorage.getItem('si_bunda_wa');
+    if (savedWa) {
+      setWhatsappNumber(savedWa);
+    }
+
+    // 3. Saved PDF Books
+    const savedPdfBooks = localStorage.getItem('si_bunda_pdf_books');
+    if (savedPdfBooks) {
+      try {
+        const parsed = JSON.parse(savedPdfBooks);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setPdfBooks(parsed);
+          setSelectedPdf(parsed[0]);
+        }
+      } catch {
+        // use default
+      }
+    }
+
+    // 4. Saved Logs
     const savedLogs = localStorage.getItem('si_bunda_logs');
     if (savedLogs) {
       try {
@@ -314,7 +380,7 @@ export default function App() {
       localStorage.setItem('si_bunda_logs', JSON.stringify(initialDemoLogs));
     }
 
-    // 4. Saved User
+    // 5. Saved User
     const savedUser = localStorage.getItem('si_bunda_user');
     let hasUser = false;
     if (savedUser) {
@@ -336,7 +402,7 @@ export default function App() {
       setShowWelcomeModal(true);
     }
 
-    // 5. Firebase Real-time listeners
+    // 6. Firebase Real-time listeners
     const unsubLogs = subscribeToVisitorLogs((logs) => {
       if (Array.isArray(logs) && logs.length > 0) {
         setVisitorLogs(logs);
@@ -403,16 +469,13 @@ export default function App() {
       timestamp: timestampStr,
     };
 
-    // Update local state and storage
     setVisitorLogs((prev) => {
       const updated = [newLog, ...prev.filter((l) => !(l.nama === newLog.nama && l.timestamp === newLog.timestamp))];
       localStorage.setItem('si_bunda_logs', JSON.stringify(updated));
       return updated;
     });
 
-    // Cloud Firestore Sync + Google Sheets Dispatch
     dbAddVisitorLog(newLog, googleSheetWebhook);
-
     setShowWelcomeModal(false);
     showToast(`Selamat datang Ibu ${newUserData.nama}! Selamat menjelajahi platform Si Bunda.`);
   };
@@ -440,14 +503,54 @@ export default function App() {
     showToast('Anda telah keluar dari mode Admin.');
   };
 
-  const editHeaderGif = () => {
-    const newGif = prompt('Masukkan URL Gambar / Animated GIF Header Baru (1280x720):', customHeaderGif);
-    if (newGif !== null && newGif.trim()) {
-      setCustomHeaderGif(newGif.trim());
-      showToast('Header GIF berhasil diperbarui!');
+  // Logo Upload & Management
+  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Harap unggah file gambar (PNG, JPG, SVG, WebP)!');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Ukuran file logo maksimal 5 MB!');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setCustomLogoUrl(base64);
+      localStorage.setItem('si_bunda_custom_logo', base64);
+      showToast('Logo website berhasil diperbarui!');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleResetLogo = () => {
+    if (confirm('Kembalikan logo ke logo standar Si Bunda?')) {
+      setCustomLogoUrl('');
+      localStorage.removeItem('si_bunda_custom_logo');
+      showToast('Logo dikembalikan ke standar.');
     }
   };
 
+  // Header GIF Management
+  const handleSaveHeaderGif = (newGif: string) => {
+    setCustomHeaderGif(newGif);
+    localStorage.setItem('si_bunda_header_gif', newGif);
+    showToast('Header GIF berhasil diperbarui!');
+  };
+
+  const editHeaderGif = () => {
+    const newGif = prompt('Masukkan URL Gambar / Animated GIF Header Baru (1280x720):', customHeaderGif);
+    if (newGif !== null && newGif.trim()) {
+      handleSaveHeaderGif(newGif.trim());
+    }
+  };
+
+  // Video Management
   const openVideoModal = () => {
     setEditingVideo({ id: '', category: 'gizi', title: '', youtubeId: '', description: '' });
     setShowVideoFormModal(true);
@@ -500,6 +603,142 @@ export default function App() {
     showToast('Video berhasil dihapus.');
   };
 
+  // PDF Book & File Management
+  const openPdfModal = (bookToEdit?: PdfBook) => {
+    if (bookToEdit) {
+      setEditingPdfBook({
+        id: bookToEdit.id,
+        title: bookToEdit.title,
+        ageCategory: bookToEdit.ageCategory || '6 - 8 Bulan',
+        fileName: bookToEdit.fileName || '',
+        pdfFileUrl: bookToEdit.pdfFileUrl || '',
+        description: bookToEdit.pages?.[0]?.nutritionNote || '',
+      });
+    } else {
+      setEditingPdfBook({
+        id: '',
+        title: '',
+        ageCategory: '6 - 8 Bulan',
+        fileName: '',
+        pdfFileUrl: '',
+        description: '',
+      });
+    }
+    setShowPdfFormModal(true);
+  };
+
+  const handlePdfFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      alert('File harus berformat PDF (.pdf)!');
+      return;
+    }
+
+    // Limit to 15MB for local storage storage
+    if (file.size > 15 * 1024 * 1024) {
+      alert('Ukuran file PDF terlalu besar (maksimal 15 MB). Anda juga dapat memasukkan tautan Google Drive/Cloud.');
+      return;
+    }
+
+    const sizeFormatted = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setEditingPdfBook((prev) => ({
+        ...prev,
+        fileName: file.name,
+        pdfFileUrl: base64,
+        title: prev.title || file.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' '),
+      }));
+      showToast(`File ${file.name} (${sizeFormatted}) siap disimpan!`);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const savePdfBookForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPdfBook.title.trim()) return;
+
+    const bookId = editingPdfBook.id || `pdf-${Date.now()}`;
+    const newBook: PdfBook = {
+      id: bookId,
+      title: editingPdfBook.title.trim(),
+      ageCategory: editingPdfBook.ageCategory,
+      fileName: editingPdfBook.fileName || `${editingPdfBook.title}.pdf`,
+      pdfFileUrl: editingPdfBook.pdfFileUrl,
+      downloadUrl: editingPdfBook.pdfFileUrl || '#',
+      uploadedAt: new Date().toLocaleDateString('id-ID', { dateStyle: 'medium' }),
+      pages: [
+        {
+          recipeTitle: editingPdfBook.title,
+          ageCategory: editingPdfBook.ageCategory,
+          image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80',
+          ingredients: [
+            'Bahan pangan lokal berkualitas',
+            'Ikan segar atau protein hewani pilihan',
+            'Sayur kaya serat dan vitamin',
+            'Lemak sehat penunjang kalori',
+          ],
+          steps: [
+            'Siapkan bahan-bahan segar sesuai takaran.',
+            'Olah dengan higienis untuk menjaga keutuhan zat gizi.',
+            'Sesuaikan tekstur dengan usia si kecil.',
+            'Sajikan dalam keadaan hangat dan higienis.',
+          ],
+          nutritionNote: editingPdfBook.description || 'Pedoman resmi MP-ASI bergizi seimbang untuk tumbuh kembang optimal anak.',
+        },
+      ],
+    };
+
+    setPdfBooks((prev) => {
+      const idx = prev.findIndex((b) => b.id === bookId);
+      const updated = idx !== -1 ? prev.map((b) => (b.id === bookId ? newBook : b)) : [...prev, newBook];
+      localStorage.setItem('si_bunda_pdf_books', JSON.stringify(updated));
+      return updated;
+    });
+
+    if (selectedPdf.id === bookId || !selectedPdf) {
+      setSelectedPdf(newBook);
+    }
+
+    setShowPdfFormModal(false);
+    showToast('Buku & File PDF Resep MP-ASI berhasil disimpan!');
+  };
+
+  const executeDeletePdf = () => {
+    if (!deletingPdfTarget) return;
+    setPdfBooks((prev) => {
+      const updated = prev.filter((b) => b.id !== deletingPdfTarget);
+      localStorage.setItem('si_bunda_pdf_books', JSON.stringify(updated));
+      if (selectedPdf.id === deletingPdfTarget && updated.length > 0) {
+        setSelectedPdf(updated[0]);
+      }
+      return updated;
+    });
+    setDeletingPdfTarget(null);
+    showToast('Buku PDF berhasil dihapus.');
+  };
+
+  // Download PDF File Helper
+  const downloadPdfFile = (book: PdfBook) => {
+    if (book.pdfFileUrl && book.pdfFileUrl.startsWith('data:')) {
+      const a = document.createElement('a');
+      a.href = book.pdfFileUrl;
+      a.download = book.fileName || `${book.title}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showToast(`Mengunduh file ${book.fileName || book.title}...`);
+    } else if (book.downloadUrl && book.downloadUrl !== '#') {
+      window.open(book.downloadUrl, '_blank');
+    } else {
+      window.print();
+    }
+  };
+
+  // Webhook and CSV Helpers
   const saveWebhookUrl = () => {
     localStorage.setItem('si_bunda_webhook', googleSheetWebhook);
     dbSaveWebhook(googleSheetWebhook);
@@ -568,15 +807,44 @@ export default function App() {
       <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-pink-100 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16 sm:h-20">
-            {/* Logo Brand */}
-            <div onClick={() => changePage('home')} className="flex items-center gap-2 cursor-pointer group">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#FFF0F4] text-[#FF7B9C] flex items-center justify-center group-hover:scale-105 transition-transform text-xl shadow-inner">
-                <i className="fa-solid fa-heart-pulse"></i>
+            {/* Logo Brand with Upload Support */}
+            <div className="flex items-center gap-2">
+              <div
+                onClick={() => changePage('home')}
+                className="flex items-center gap-2 cursor-pointer group"
+              >
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#FFF0F4] text-[#FF7B9C] flex items-center justify-center group-hover:scale-105 transition-transform text-xl shadow-inner overflow-hidden border border-pink-100">
+                  {customLogoUrl ? (
+                    <img
+                      src={customLogoUrl}
+                      alt="Logo Si Bunda"
+                      className="w-full h-full object-cover"
+                      onError={() => setCustomLogoUrl('')}
+                    />
+                  ) : (
+                    <i className="fa-solid fa-heart-pulse"></i>
+                  )}
+                </div>
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-black text-[#FF7B9C] tracking-tight leading-none">Si Bunda</h1>
+                  <p className="text-xs text-gray-500 font-semibold tracking-wide">Edukasi Gizi & Balita</p>
+                </div>
               </div>
-              <div>
-                <h1 className="text-xl sm:text-2xl font-black text-[#FF7B9C] tracking-tight leading-none">Si Bunda</h1>
-                <p className="text-xs text-gray-500 font-semibold tracking-wide">Edukasi Gizi & Balita</p>
-              </div>
+
+              {/* Quick Admin Logo Edit Button */}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrentPage('admin');
+                    setAdminTab('branding');
+                  }}
+                  className="p-1.5 text-xs text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded-lg transition"
+                  title="Ganti / Upload Logo Website"
+                >
+                  <i className="fa-solid fa-camera"></i>
+                </button>
+              )}
             </div>
 
             {/* Desktop Navigation Links */}
@@ -1172,7 +1440,7 @@ export default function App() {
           </section>
         )}
 
-        {/* PAGE 4: RESEP MP ASI PAGE */}
+        {/* PAGE 4: RESEP MP ASI PAGE WITH PDF VIEWER & EMBED */}
         {currentPage === 'mpasi' && (
           <section className="space-y-8 animate-in fade-in duration-300">
             <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-amber-100">
@@ -1183,22 +1451,33 @@ export default function App() {
                 <span>/</span>
                 <span>Resep MP ASI</span>
               </div>
-              <h2 className="text-2xl sm:text-3xl font-black text-[#FF9F1C] mb-3 flex items-center gap-2">
-                <i className="fa-solid fa-book-open-reader"></i> Resep MP ASI Bergizi
-              </h2>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <h2 className="text-2xl sm:text-3xl font-black text-[#FF9F1C] flex items-center gap-2">
+                  <i className="fa-solid fa-book-open-reader"></i> Resep MP ASI Bergizi
+                </h2>
+                {isAdmin && (
+                  <button
+                    onClick={() => openPdfModal()}
+                    className="bg-[#FF9F1C] hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-xl text-xs sm:text-sm shadow flex items-center gap-1.5 transition"
+                  >
+                    <i className="fa-solid fa-file-arrow-up"></i>
+                    <span>Unggah / Tambah Buku PDF</span>
+                  </button>
+                )}
+              </div>
               <div className="bg-amber-50 p-4 sm:p-6 rounded-2xl border-l-4 border-[#FF9F1C] text-gray-700 space-y-2">
                 <h3 className="font-extrabold text-base sm:text-lg text-amber-800">
                   Kumpulan Resep Pilihan MP ASI Sehat & Lezat
                 </h3>
                 <p className="text-xs sm:text-sm leading-relaxed">
-                  Temukan berbagai variasi resep Makanan Pendamping ASI yang disesuaikan dengan tahapan usia balita (6–24 bulan). Buku resep disajikan dalam format buku dokumen interaktif di bawah ini yang dapat dibaca per halaman secara berurutan.
+                  Temukan berbagai variasi resep Makanan Pendamping ASI yang disesuaikan dengan tahapan usia balita (6–24 bulan). Buku resep disajikan dalam format buku dokumen interaktif di bawah ini yang dapat dibaca per halaman secara berurutan atau diunduh langsung dalam bentuk file PDF.
                 </p>
               </div>
             </div>
 
             {/* PDF Tabs */}
             <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
-              {DEFAULT_PDF_BOOKS.map((book) => (
+              {pdfBooks.map((book) => (
                 <button
                   key={book.id}
                   onClick={() => {
@@ -1225,34 +1504,60 @@ export default function App() {
                   <span className="font-bold text-xs sm:text-sm truncate max-w-[200px] sm:max-w-md">
                     {selectedPdf.title}
                   </span>
+                  {selectedPdf.fileName && (
+                    <span className="text-[10px] bg-gray-800 text-gray-400 px-2 py-0.5 rounded font-mono hidden md:inline">
+                      {selectedPdf.fileName}
+                    </span>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-3 text-xs">
-                  <div className="flex items-center bg-gray-800 rounded-xl px-2 py-1 border border-gray-700">
-                    <button
-                      onClick={() => setPdfZoom((prev) => (prev > 70 ? prev - 10 : prev))}
-                      className="hover:text-[#FF9F1C] px-1"
-                      title="Zoom Out"
-                    >
-                      <i className="fa-solid fa-minus"></i>
-                    </button>
-                    <span className="px-2 font-mono text-gray-300">{pdfZoom}%</span>
-                    <button
-                      onClick={() => setPdfZoom((prev) => (prev < 150 ? prev + 10 : prev))}
-                      className="hover:text-[#FF9F1C] px-1"
-                      title="Zoom In"
-                    >
-                      <i className="fa-solid fa-plus"></i>
-                    </button>
-                  </div>
+                <div className="flex items-center gap-2 sm:gap-3 text-xs">
+                  {/* View mode toggle if PDF file exists */}
+                  {selectedPdf.pdfFileUrl && (
+                    <div className="flex bg-gray-800 rounded-xl p-0.5 border border-gray-700">
+                      <button
+                        onClick={() => setPdfViewMode('scribd')}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-bold transition ${
+                          pdfViewMode === 'scribd' ? 'bg-[#FF9F1C] text-white' : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        Scribd
+                      </button>
+                      <button
+                        onClick={() => setPdfViewMode('embed')}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-bold transition ${
+                          pdfViewMode === 'embed' ? 'bg-[#FF9F1C] text-white' : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        File PDF
+                      </button>
+                    </div>
+                  )}
 
-                  <div className="bg-gray-800 px-3 py-1 rounded-xl text-gray-300 font-mono border border-gray-700">
-                    <span>Halaman 1 - {selectedPdf.pages.length}</span>
-                  </div>
+                  {pdfViewMode === 'scribd' && (
+                    <div className="flex items-center bg-gray-800 rounded-xl px-2 py-1 border border-gray-700">
+                      <button
+                        onClick={() => setPdfZoom((prev) => (prev > 70 ? prev - 10 : prev))}
+                        className="hover:text-[#FF9F1C] px-1"
+                        title="Zoom Out"
+                      >
+                        <i className="fa-solid fa-minus"></i>
+                      </button>
+                      <span className="px-2 font-mono text-gray-300">{pdfZoom}%</span>
+                      <button
+                        onClick={() => setPdfZoom((prev) => (prev < 150 ? prev + 10 : prev))}
+                        className="hover:text-[#FF9F1C] px-1"
+                        title="Zoom In"
+                      >
+                        <i className="fa-solid fa-plus"></i>
+                      </button>
+                    </div>
+                  )}
 
                   <button
-                    onClick={() => window.print()}
+                    onClick={() => downloadPdfFile(selectedPdf)}
                     className="bg-[#FF9F1C] hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 transition"
+                    title="Unduh File PDF Resep"
                   >
                     <i className="fa-solid fa-download"></i>
                     <span className="hidden sm:inline">Unduh PDF</span>
@@ -1260,70 +1565,82 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="p-4 sm:p-8 max-h-[650px] overflow-y-auto bg-gray-700/60 flex flex-col items-center space-y-6">
-                {selectedPdf.pages.map((page, pageIdx) => (
-                  <div
-                    key={pageIdx}
-                    className="bg-white rounded-xl scribd-shadow transition-all duration-300 relative overflow-hidden"
-                    style={{
-                      width: `${600 * (pdfZoom / 100)}px`,
-                      minHeight: `${780 * (pdfZoom / 100)}px`,
-                      maxWidth: '100%',
-                    }}
-                  >
-                    <div className="border-b border-gray-100 p-4 sm:p-6 bg-amber-50/40 flex justify-between items-center text-xs text-gray-400">
-                      <span className="font-bold text-[#FF9F1C]">Si Bunda MP-ASI Cookbook</span>
-                      <span className="font-mono">Hal. {pageIdx + 1}</span>
-                    </div>
-
-                    <div className="p-6 sm:p-8 space-y-4">
-                      <div className="flex items-center justify-between border-b border-pink-100 pb-3">
-                        <h3 className="text-base sm:text-xl font-black text-gray-800">{page.recipeTitle}</h3>
-                        <span className="bg-[#FFF0F4] text-[#FF7B9C] font-bold text-[10px] sm:text-xs px-2.5 py-1 rounded-full">
-                          {page.ageCategory}
-                        </span>
+              {/* View Mode: Embedded PDF Viewer */}
+              {pdfViewMode === 'embed' && selectedPdf.pdfFileUrl ? (
+                <div className="w-full h-[650px] bg-gray-900">
+                  <iframe
+                    src={selectedPdf.pdfFileUrl}
+                    title={selectedPdf.title}
+                    className="w-full h-full border-0"
+                  />
+                </div>
+              ) : (
+                /* View Mode: Scribd Multi-Page Vertical Continuous Scroll */
+                <div className="p-4 sm:p-8 max-h-[650px] overflow-y-auto bg-gray-700/60 flex flex-col items-center space-y-6">
+                  {selectedPdf.pages.map((page, pageIdx) => (
+                    <div
+                      key={pageIdx}
+                      className="bg-white rounded-xl scribd-shadow transition-all duration-300 relative overflow-hidden"
+                      style={{
+                        width: `${600 * (pdfZoom / 100)}px`,
+                        minHeight: `${780 * (pdfZoom / 100)}px`,
+                        maxWidth: '100%',
+                      }}
+                    >
+                      <div className="border-b border-gray-100 p-4 sm:p-6 bg-amber-50/40 flex justify-between items-center text-xs text-gray-400">
+                        <span className="font-bold text-[#FF9F1C]">Si Bunda MP-ASI Cookbook</span>
+                        <span className="font-mono">Hal. {pageIdx + 1}</span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 my-4">
-                        <img
-                          src={page.image}
-                          alt={page.recipeTitle}
-                          className="w-full h-40 sm:h-48 object-cover rounded-xl border border-gray-100"
-                        />
-                        <div className="bg-gray-50 p-4 rounded-xl text-xs space-y-2">
-                          <h4 className="font-extrabold text-gray-700 border-b pb-1">Bahan-Bahan Utama:</h4>
-                          <ul className="list-disc list-inside text-gray-600 space-y-1">
-                            {page.ingredients.map((ing, i) => (
-                              <li key={i}>{ing}</li>
+                      <div className="p-6 sm:p-8 space-y-4">
+                        <div className="flex items-center justify-between border-b border-pink-100 pb-3">
+                          <h3 className="text-base sm:text-xl font-black text-gray-800">{page.recipeTitle}</h3>
+                          <span className="bg-[#FFF0F4] text-[#FF7B9C] font-bold text-[10px] sm:text-xs px-2.5 py-1 rounded-full">
+                            {page.ageCategory}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 my-4">
+                          <img
+                            src={page.image}
+                            alt={page.recipeTitle}
+                            className="w-full h-40 sm:h-48 object-cover rounded-xl border border-gray-100"
+                          />
+                          <div className="bg-gray-50 p-4 rounded-xl text-xs space-y-2">
+                            <h4 className="font-extrabold text-gray-700 border-b pb-1">Bahan-Bahan Utama:</h4>
+                            <ul className="list-disc list-inside text-gray-600 space-y-1">
+                              {page.ingredients.map((ing, i) => (
+                                <li key={i}>{ing}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 text-xs text-gray-700">
+                          <h4 className="font-extrabold text-gray-800">Langkah Pembuatan:</h4>
+                          <ol className="list-decimal list-inside space-y-1.5 text-gray-600 leading-relaxed">
+                            {page.steps.map((step, s) => (
+                              <li key={s}>{step}</li>
                             ))}
-                          </ul>
+                          </ol>
+                        </div>
+
+                        <div className="mt-4 p-3 bg-teal-50 rounded-xl text-[11px] text-teal-800 border border-teal-100 flex items-start gap-2">
+                          <i className="fa-solid fa-lightbulb text-[#2EC4B6] text-sm mt-0.5"></i>
+                          <div>
+                            <span className="font-bold">Catatan Gizi Ahli: </span>
+                            <span>{page.nutritionNote}</span>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="space-y-2 text-xs text-gray-700">
-                        <h4 className="font-extrabold text-gray-800">Langkah Pembuatan:</h4>
-                        <ol className="list-decimal list-inside space-y-1.5 text-gray-600 leading-relaxed">
-                          {page.steps.map((step, s) => (
-                            <li key={s}>{step}</li>
-                          ))}
-                        </ol>
-                      </div>
-
-                      <div className="mt-4 p-3 bg-teal-50 rounded-xl text-[11px] text-teal-800 border border-teal-100 flex items-start gap-2">
-                        <i className="fa-solid fa-lightbulb text-[#2EC4B6] text-sm mt-0.5"></i>
-                        <div>
-                          <span className="font-bold">Catatan Gizi Ahli: </span>
-                          <span>{page.nutritionNote}</span>
-                        </div>
+                      <div className="absolute bottom-0 inset-x-0 p-3 bg-gray-50 border-t border-gray-100 text-center text-[10px] text-gray-400 font-semibold">
+                        Platform Edukasi Gizi Si Bunda - Kepulauan Bangka Belitung
                       </div>
                     </div>
-
-                    <div className="absolute bottom-0 inset-x-0 p-3 bg-gray-50 border-t border-gray-100 text-center text-[10px] text-gray-400 font-semibold">
-                      Platform Edukasi Gizi Si Bunda - Kepulauan Bangka Belitung
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -1338,7 +1655,7 @@ export default function App() {
                 </span>
                 <h2 className="text-2xl sm:text-3xl font-black mt-1">Dashboard Kelola Konten & Data Kunjungan</h2>
                 <p className="text-purple-200 text-xs sm:text-sm">
-                  Pantau sasaran Ibu Balita (Realtime Cloud Sync), sinkronkan ke Google Sheets, dan kelola konten edukasi
+                  Kelola video, upload logo & buku PDF MP-ASI, serta pantau Google Spreadsheet secara terpusat
                 </p>
               </div>
               <button
@@ -1349,29 +1666,55 @@ export default function App() {
               </button>
             </div>
 
-            {/* Admin Navigation Tabs */}
-            <div className="flex border-b border-gray-200 gap-4">
+            {/* Admin Navigation Tabs (4 TABS) */}
+            <div className="flex border-b border-gray-200 gap-2 sm:gap-4 overflow-x-auto pb-1 no-scrollbar">
               <button
                 onClick={() => setAdminTab('analytics')}
-                className={`pb-3 text-sm transition flex items-center gap-2 ${
+                className={`pb-3 text-xs sm:text-sm transition flex items-center gap-2 whitespace-nowrap ${
                   adminTab === 'analytics'
                     ? 'border-b-4 border-purple-600 text-purple-700 font-extrabold'
                     : 'text-gray-500 font-bold'
                 }`}
               >
                 <i className="fa-solid fa-table-cells text-emerald-600"></i>
-                <span>Data Kunjungan Ibu ({visitorLogs.length})</span>
+                <span>Data Kunjungan ({visitorLogs.length})</span>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Cloud Realtime Sync Active"></span>
               </button>
+
               <button
                 onClick={() => setAdminTab('videos')}
-                className={`pb-3 text-sm transition ${
+                className={`pb-3 text-xs sm:text-sm transition whitespace-nowrap flex items-center gap-1.5 ${
                   adminTab === 'videos'
                     ? 'border-b-4 border-purple-600 text-purple-700 font-extrabold'
                     : 'text-gray-500 font-bold'
                 }`}
               >
-                <i className="fa-solid fa-video mr-1"></i> Kelola Video Edukasi
+                <i className="fa-solid fa-video text-purple-600"></i>
+                <span>Video Edukasi ({giziVideos.length + kmsVideos.length})</span>
+              </button>
+
+              <button
+                onClick={() => setAdminTab('pdfs')}
+                className={`pb-3 text-xs sm:text-sm transition whitespace-nowrap flex items-center gap-1.5 ${
+                  adminTab === 'pdfs'
+                    ? 'border-b-4 border-purple-600 text-purple-700 font-extrabold'
+                    : 'text-gray-500 font-bold'
+                }`}
+              >
+                <i className="fa-solid fa-file-pdf text-[#FF9F1C]"></i>
+                <span>Buku & File PDF ({pdfBooks.length})</span>
+              </button>
+
+              <button
+                onClick={() => setAdminTab('branding')}
+                className={`pb-3 text-xs sm:text-sm transition whitespace-nowrap flex items-center gap-1.5 ${
+                  adminTab === 'branding'
+                    ? 'border-b-4 border-purple-600 text-purple-700 font-extrabold'
+                    : 'text-gray-500 font-bold'
+                }`}
+              >
+                <i className="fa-solid fa-palette text-[#FF7B9C]"></i>
+                <span>Logo & Tampilan Web</span>
               </button>
             </div>
 
@@ -1550,6 +1893,203 @@ export default function App() {
                 </div>
               </div>
             )}
+
+            {/* TAB 3: KELOLA BUKU & FILE PDF RESEP MP-ASI */}
+            {adminTab === 'pdfs' && (
+              <div className="space-y-6">
+                <div className="flex flex-wrap justify-between items-center gap-3">
+                  <div>
+                    <h3 className="font-extrabold text-gray-800 text-lg">Kelola Buku & File PDF Resep MP-ASI</h3>
+                    <p className="text-xs text-gray-500">
+                      Unggah file PDF resep dari komputer Anda agar ibu-ibu balita dapat membaca dan mengunduhnya secara langsung.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => openPdfModal()}
+                    className="bg-[#FF9F1C] hover:bg-amber-600 text-white font-bold px-4 py-2.5 rounded-xl text-xs sm:text-sm shadow flex items-center gap-1.5"
+                  >
+                    <i className="fa-solid fa-file-arrow-up"></i>
+                    <span>Unggah / Tambah Buku PDF Baru</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {pdfBooks.map((book) => (
+                    <div
+                      key={book.id}
+                      className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between space-y-4 hover:border-amber-300 transition"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase">
+                            {book.ageCategory || 'MP-ASI'}
+                          </span>
+                          {book.pdfFileUrl ? (
+                            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <i className="fa-solid fa-file-circle-check text-emerald-600"></i> File PDF Aktif
+                            </span>
+                          ) : (
+                            <span className="bg-gray-100 text-gray-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                              Resep Digital
+                            </span>
+                          )}
+                        </div>
+
+                        <h4 className="font-bold text-gray-800 text-base">{book.title}</h4>
+                        <p className="text-xs text-gray-500 line-clamp-2">
+                          {book.fileName ? `Nama File: ${book.fileName}` : 'Buku digital interaktif dengan resep panduan ahli gizi.'}
+                        </p>
+                      </div>
+
+                      <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={() => downloadPdfFile(book)}
+                          className="text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1"
+                        >
+                          <i className="fa-solid fa-download"></i> Uji Unduh
+                        </button>
+
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => openPdfModal(book)}
+                            className="text-blue-600 hover:underline text-xs font-bold"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeletingPdfTarget(book.id)}
+                            className="text-red-500 hover:underline text-xs font-bold"
+                          >
+                            Hapus
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: KELOLA LOGO & TAMPILAN HEADER */}
+            {adminTab === 'branding' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* 1. KELOLA LOGO WEBSITE */}
+                <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm space-y-4">
+                  <div className="flex items-center gap-2 text-[#FF7B9C] font-bold text-base">
+                    <i className="fa-solid fa-image"></i>
+                    <h4>Logo Website Si Bunda</h4>
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    Unggah file gambar logo baru (format PNG, JPG, atau SVG) untuk menggantikan logo bawaan di bagian navigasi atas dan footer.
+                  </p>
+
+                  {/* Logo Preview */}
+                  <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-2xl bg-white border-2 border-pink-100 flex items-center justify-center p-2 shadow-inner overflow-hidden">
+                      {customLogoUrl ? (
+                        <img src={customLogoUrl} alt="Pratinjau Logo" className="w-full h-full object-contain" />
+                      ) : (
+                        <i className="fa-solid fa-heart-pulse text-2xl text-[#FF7B9C]"></i>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-gray-800 block">
+                        {customLogoUrl ? 'Logo Kustom Terpasang' : 'Logo Standar Si Bunda'}
+                      </span>
+                      <span className="text-[11px] text-gray-400">
+                        {customLogoUrl ? 'Tampil di Header & Footer' : 'Menggunakan ikon hati detak bawaan'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <input
+                    type="file"
+                    ref={logoFileInputRef}
+                    accept="image/*"
+                    onChange={handleLogoFileUpload}
+                    className="hidden"
+                  />
+
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => logoFileInputRef.current?.click()}
+                      className="bg-[#FF7B9C] hover:bg-pink-600 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow"
+                    >
+                      <i className="fa-solid fa-cloud-arrow-up"></i>
+                      <span>Unggah File Logo Baru</span>
+                    </button>
+
+                    {customLogoUrl && (
+                      <button
+                        type="button"
+                        onClick={handleResetLogo}
+                        className="bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold px-4 py-2.5 rounded-xl text-xs transition"
+                      >
+                        Reset ke Standar
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. KELOLA HEADER GIF & KONTAK WA */}
+                <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm space-y-4">
+                  <div className="flex items-center gap-2 text-purple-700 font-bold text-base">
+                    <i className="fa-solid fa-photo-film"></i>
+                    <h4>Banner Animasi GIF Header (1280x720)</h4>
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    Masukkan URL animasi GIF edukasi (1280x720 / 720p) yang ingin ditampilkan di banner atas seluruh halaman.
+                  </p>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold text-gray-700">URL Gambar / GIF Banner</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        value={customHeaderGif}
+                        onChange={(e) => setCustomHeaderGif(e.target.value)}
+                        placeholder="https://...link-gif-anda.gif"
+                        className="flex-grow text-xs p-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-purple-500 outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveHeaderGif(customHeaderGif)}
+                        className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition whitespace-nowrap shadow"
+                      >
+                        Simpan
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-gray-100 space-y-2">
+                    <label className="block text-xs font-bold text-gray-700">Nomor WhatsApp Ahli Gizi</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={whatsappNumber}
+                        onChange={(e) => setWhatsappNumber(e.target.value)}
+                        placeholder="6281234567890"
+                        className="flex-grow text-xs p-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-purple-500 outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          localStorage.setItem('si_bunda_wa', whatsappNumber);
+                          showToast('Nomor WhatsApp berhasil diperbarui!');
+                        }}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition whitespace-nowrap shadow"
+                      >
+                        Simpan WA
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
         )}
       </main>
@@ -1559,8 +2099,12 @@ export default function App() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-center sm:text-left">
           <div>
             <div className="flex items-center justify-center sm:justify-start gap-2 mb-1">
-              <div className="w-7 h-7 bg-[#FF7B9C] text-white rounded-lg flex items-center justify-center text-xs font-bold">
-                <i className="fa-solid fa-heart-pulse"></i>
+              <div className="w-7 h-7 bg-[#FF7B9C] text-white rounded-lg flex items-center justify-center text-xs font-bold overflow-hidden border border-pink-100">
+                {customLogoUrl ? (
+                  <img src={customLogoUrl} alt="Logo Si Bunda" className="w-full h-full object-cover" />
+                ) : (
+                  <i className="fa-solid fa-heart-pulse"></i>
+                )}
               </div>
               <span className="font-extrabold text-[#FF7B9C] text-lg">Si Bunda</span>
             </div>
@@ -1870,7 +2414,137 @@ export default function App() {
         </div>
       )}
 
-      {/* 5. DELETE CONFIRMATION MODAL */}
+      {/* 5. MODAL UPLOAD / EDIT BUKU RESEP PDF */}
+      {showPdfFormModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="text-lg font-black text-gray-800 flex items-center gap-2">
+                <i className="fa-solid fa-file-pdf text-[#FF9F1C]"></i>
+                <span>{editingPdfBook.id ? 'Edit Buku / File PDF' : 'Unggah Buku & File PDF Baru'}</span>
+              </h3>
+              <button onClick={() => setShowPdfFormModal(false)} className="text-gray-400 hover:text-gray-600">
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+
+            <form onSubmit={savePdfBookForm} className="space-y-4 text-xs">
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Judul Buku / Kumpulan Resep *</label>
+                <input
+                  type="text"
+                  required
+                  value={editingPdfBook.title}
+                  onChange={(e) => setEditingPdfBook({ ...editingPdfBook, title: e.target.value })}
+                  placeholder="Contoh: Buku Resep MP-ASI Usia 12-23 Bulan Bergizi Tinggi"
+                  className="w-full p-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-[#FF9F1C] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Kategori Usia Balita</label>
+                <select
+                  value={editingPdfBook.ageCategory}
+                  onChange={(e) => setEditingPdfBook({ ...editingPdfBook, ageCategory: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-[#FF9F1C] outline-none bg-white"
+                >
+                  <option value="6 - 8 Bulan">6 - 8 Bulan (Tekstur Saring)</option>
+                  <option value="9 - 11 Bulan">9 - 11 Bulan (Tekstur Cincang)</option>
+                  <option value="12 - 23 Bulan">12 - 23 Bulan (Makanan Keluarga)</option>
+                  <option value="Kudapan & Snack">Kudapan & Snack Bergizi</option>
+                  <option value="Semua Usia">Panduan MP-ASI Umum</option>
+                </select>
+              </div>
+
+              {/* Upload File PDF Picker */}
+              <div className="p-4 bg-amber-50/60 rounded-2xl border-2 border-dashed border-amber-300 space-y-3">
+                <div className="text-center">
+                  <i className="fa-solid fa-file-arrow-up text-3xl text-[#FF9F1C] mb-2 block"></i>
+                  <span className="font-bold text-gray-800 text-xs block">Pilih File PDF dari Komputer / HP</span>
+                  <span className="text-[11px] text-gray-500">Mendukung file dokumen .pdf resmi (maksimal 15 MB)</span>
+                </div>
+
+                <input
+                  type="file"
+                  ref={pdfFileInputRef}
+                  accept="application/pdf,.pdf"
+                  onChange={handlePdfFileChange}
+                  className="hidden"
+                />
+
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => pdfFileInputRef.current?.click()}
+                    className="bg-[#FF9F1C] hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow"
+                  >
+                    <i className="fa-solid fa-folder-open"></i>
+                    <span>Cari File PDF</span>
+                  </button>
+                </div>
+
+                {editingPdfBook.fileName && (
+                  <div className="bg-white p-2.5 rounded-xl border border-amber-200 flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-gray-800 truncate max-w-[240px]">
+                      <i className="fa-solid fa-file-pdf text-[#FF9F1C] mr-1.5"></i>
+                      {editingPdfBook.fileName}
+                    </span>
+                    <span className="text-emerald-600 font-bold">Siap Disimpan</span>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">
+                  Atau Masukkan Tautan PDF Eksternal (Opsional)
+                </label>
+                <input
+                  type="url"
+                  value={editingPdfBook.pdfFileUrl.startsWith('data:') ? '' : editingPdfBook.pdfFileUrl}
+                  onChange={(e) =>
+                    setEditingPdfBook({
+                      ...editingPdfBook,
+                      pdfFileUrl: e.target.value,
+                      fileName: editingPdfBook.fileName || 'Dokumen_Resep_MPASI.pdf',
+                    })
+                  }
+                  placeholder="https://drive.google.com/.../view atau link PDF langsung"
+                  className="w-full p-2.5 rounded-xl border border-gray-300 text-xs focus:ring-2 focus:ring-[#FF9F1C] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Catatan Gizi / Deskripsi Singkat</label>
+                <textarea
+                  rows={2}
+                  value={editingPdfBook.description}
+                  onChange={(e) => setEditingPdfBook({ ...editingPdfBook, description: e.target.value })}
+                  placeholder="Keterangan singkat tentang resep-resep di dalam buku ini..."
+                  className="w-full p-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-[#FF9F1C] outline-none"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t">
+                <button
+                  type="button"
+                  onClick={() => setShowPdfFormModal(false)}
+                  className="w-1/2 bg-gray-100 text-gray-700 font-bold py-2.5 rounded-xl text-xs"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 bg-[#FF9F1C] hover:bg-amber-600 text-white font-bold py-2.5 rounded-xl text-xs shadow"
+                >
+                  Simpan Buku PDF
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 6. DELETE CONFIRMATION MODALS */}
       {deletingVideoTarget !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl max-w-xs w-full p-6 shadow-2xl text-center space-y-4">
@@ -1890,6 +2564,34 @@ export default function App() {
               <button
                 type="button"
                 onClick={executeDeleteVideo}
+                className="w-1/2 bg-red-600 text-white font-bold py-2 rounded-xl text-xs"
+              >
+                Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletingPdfTarget !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-xs w-full p-6 shadow-2xl text-center space-y-4">
+            <div className="w-12 h-12 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto text-xl">
+              <i className="fa-solid fa-trash"></i>
+            </div>
+            <h4 className="font-black text-gray-800 text-base">Hapus Buku PDF Ini?</h4>
+            <p className="text-xs text-gray-500">Tindakan ini akan menghapus buku dan file PDF dari tab resep MP-ASI.</p>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingPdfTarget(null)}
+                className="w-1/2 bg-gray-200 text-gray-700 font-bold py-2 rounded-xl text-xs"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={executeDeletePdf}
                 className="w-1/2 bg-red-600 text-white font-bold py-2 rounded-xl text-xs"
               >
                 Hapus
