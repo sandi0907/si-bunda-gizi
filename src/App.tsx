@@ -19,15 +19,19 @@ import {
   base64ToBlobUrl,
 } from './utils/pdfStorage';
 
+const DEFAULT_LOGO_URL = '/assets/aistudio/logo_eduzi_2507d203.png';
+
 interface UserData {
   nama: string;
   kecamatan: string;
+  nomorHp: string;
 }
 
 interface VisitorLog {
   id?: string;
   nama: string;
   kecamatan: string;
+  nomorHp?: string;
   timestamp: string;
 }
 
@@ -262,7 +266,7 @@ export default function App() {
   const [whatsappNumber, setWhatsappNumber] = useState('6281234567890');
 
   // Custom Logo and Header GIF
-  const [customLogoUrl, setCustomLogoUrl] = useState<string>('');
+  const [customLogoUrl, setCustomLogoUrl] = useState<string>(DEFAULT_LOGO_URL);
   const [customHeaderGif, setCustomHeaderGif] = useState<string>(
     'https://6ac6859d70fa33769150f041.imgix.net/Biru%20Hijau%20dan%20Merah%20Muda%20Belajar%20Bersama%20Anak-Anak%20Youtube%20Intro-2.gif?ixembed=1791395370108&auto=format,compress'
   );
@@ -279,7 +283,8 @@ export default function App() {
   // Form input
   const [inputNama, setInputNama] = useState('');
   const [inputKecamatan, setInputKecamatan] = useState('');
-  const [userData, setUserData] = useState<UserData>({ nama: '', kecamatan: '' });
+  const [inputNomorHp, setInputNomorHp] = useState('');
+  const [userData, setUserData] = useState<UserData>({ nama: '', kecamatan: '', nomorHp: '' });
 
   // Data collections
   const [visitorLogs, setVisitorLogs] = useState<VisitorLog[]>([]);
@@ -349,6 +354,9 @@ export default function App() {
     const savedLogo = localStorage.getItem('si_bunda_custom_logo');
     if (savedLogo) {
       setCustomLogoUrl(savedLogo);
+    } else {
+      setCustomLogoUrl(DEFAULT_LOGO_URL);
+      localStorage.setItem('si_bunda_custom_logo', DEFAULT_LOGO_URL);
     }
 
     const savedGif = localStorage.getItem('si_bunda_header_gif');
@@ -399,9 +407,9 @@ export default function App() {
       }
     } else {
       const initialDemoLogs: VisitorLog[] = [
-        { nama: 'Ibu Anita', kecamatan: 'Sungailiat (Kab. Bangka)', timestamp: '2026-10-06 09:15' },
-        { nama: 'Ibu Maya', kecamatan: 'Tanjung Pandan (Kab. Belitung)', timestamp: '2026-10-06 10:40' },
-        { nama: 'Ibu Dewi', kecamatan: 'Bukit Intan (Kota Pangkalpinang)', timestamp: '2026-10-07 08:20' },
+        { nama: 'Ibu Anita', kecamatan: 'Sungailiat (Kab. Bangka)', nomorHp: '081271234567', timestamp: '2026-10-06 09:15' },
+        { nama: 'Ibu Maya', kecamatan: 'Tanjung Pandan (Kab. Belitung)', nomorHp: '081987654321', timestamp: '2026-10-06 10:40' },
+        { nama: 'Ibu Dewi', kecamatan: 'Bukit Intan (Kota Pangkalpinang)', nomorHp: '082156789012', timestamp: '2026-10-07 08:20' },
       ];
       setVisitorLogs(initialDemoLogs);
       localStorage.setItem('si_bunda_logs', JSON.stringify(initialDemoLogs));
@@ -413,11 +421,16 @@ export default function App() {
     if (savedUser) {
       try {
         const parsed = JSON.parse(savedUser);
-        if (parsed.nama) {
+        if (parsed.nama && parsed.nomorHp) {
           setUserData(parsed);
           setInputNama(parsed.nama || '');
           setInputKecamatan(parsed.kecamatan || '');
+          setInputNomorHp(parsed.nomorHp || '');
           hasUser = true;
+        } else if (parsed.nama) {
+          setInputNama(parsed.nama || '');
+          setInputKecamatan(parsed.kecamatan || '');
+          hasUser = false;
         }
       } catch {
         // ignore
@@ -483,16 +496,23 @@ export default function App() {
     if (!searchLog.trim()) return visitorLogs;
     const q = searchLog.toLowerCase();
     return visitorLogs.filter(
-      (l) => l.nama.toLowerCase().includes(q) || l.kecamatan.toLowerCase().includes(q)
+      (l) =>
+        l.nama.toLowerCase().includes(q) ||
+        l.kecamatan.toLowerCase().includes(q) ||
+        (l.nomorHp && l.nomorHp.toLowerCase().includes(q))
     );
   }, [visitorLogs, searchLog]);
 
   // Submit User Data
   const submitUserData = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputNama.trim() || !inputKecamatan) return;
+    if (!inputNama.trim() || !inputKecamatan.trim() || !inputNomorHp.trim()) return;
 
-    const newUserData = { nama: inputNama.trim(), kecamatan: inputKecamatan };
+    const newUserData: UserData = {
+      nama: inputNama.trim(),
+      kecamatan: inputKecamatan.trim(),
+      nomorHp: inputNomorHp.trim(),
+    };
     setUserData(newUserData);
     localStorage.setItem('si_bunda_user', JSON.stringify(newUserData));
 
@@ -511,6 +531,7 @@ export default function App() {
     const newLog: VisitorLog = {
       nama: newUserData.nama,
       kecamatan: newUserData.kecamatan,
+      nomorHp: newUserData.nomorHp,
       timestamp: timestampStr,
     };
 
@@ -574,10 +595,10 @@ export default function App() {
   };
 
   const handleResetLogo = () => {
-    if (confirm('Kembalikan logo ke logo standar Si Bunda?')) {
-      setCustomLogoUrl('');
-      localStorage.removeItem('si_bunda_custom_logo');
-      showToast('Logo dikembalikan ke standar.');
+    if (confirm('Kembalikan logo ke logo standar Eduzi?')) {
+      setCustomLogoUrl(DEFAULT_LOGO_URL);
+      localStorage.setItem('si_bunda_custom_logo', DEFAULT_LOGO_URL);
+      showToast('Logo dikembalikan ke logo standar Eduzi.');
     }
   };
 
@@ -837,6 +858,7 @@ export default function App() {
     const sampleLog = {
       nama: 'Ibu Contoh (Uji Coba Webhook)',
       kecamatan: 'Sungailiat (Kab. Bangka)',
+      nomorHp: '081234567890',
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
     };
     sendToGoogleSheet(sampleLog, googleSheetWebhook);
@@ -850,9 +872,9 @@ export default function App() {
   };
 
   const exportToCSV = () => {
-    let csv = 'Waktu Kunjungan,Nama Ibu,Kecamatan\n';
+    let csv = 'Waktu Kunjungan,Nama Ibu,Kecamatan,Nomor HP\n';
     visitorLogs.forEach((l) => {
-      csv += `"${l.timestamp}","${l.nama}","${l.kecamatan}"\n`;
+      csv += `"${l.timestamp}","${l.nama}","${l.kecamatan}","${l.nomorHp || '-'}"\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
@@ -880,8 +902,9 @@ export default function App() {
     var timestamp = data.timestamp || Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm");
     var nama = data.nama || "Tanpa Nama";
     var kecamatan = data.kecamatan || "Tanpa Kecamatan";
+    var nomorHp = data.nomorHp || "-";
     
-    sheet.appendRow([timestamp, nama, kecamatan]);
+    sheet.appendRow([timestamp, nama, kecamatan, nomorHp]);
     return ContentService.createTextOutput(JSON.stringify({"status":"success"})).setMimeType(ContentService.MimeType.JSON);
   } catch(error) {
     return ContentService.createTextOutput(JSON.stringify({"status":"error", "message": error.toString()})).setMimeType(ContentService.MimeType.JSON);
@@ -900,17 +923,13 @@ export default function App() {
                 onClick={() => changePage('home')}
                 className="flex items-center gap-2 cursor-pointer group"
               >
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#FFF0F4] text-[#FF7B9C] flex items-center justify-center group-hover:scale-105 transition-transform text-xl shadow-inner overflow-hidden border border-pink-100">
-                  {customLogoUrl ? (
-                    <img
-                      src={customLogoUrl}
-                      alt="Logo Si Bunda"
-                      className="w-full h-full object-cover"
-                      onError={() => setCustomLogoUrl('')}
-                    />
-                  ) : (
-                    <i className="fa-solid fa-heart-pulse"></i>
-                  )}
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white text-[#FF7B9C] flex items-center justify-center group-hover:scale-105 transition-transform text-xl shadow-xs overflow-hidden border border-pink-100 p-1">
+                  <img
+                    src={customLogoUrl || DEFAULT_LOGO_URL}
+                    alt="Logo Eduzi Si Bunda"
+                    className="w-full h-full object-contain"
+                    onError={() => setCustomLogoUrl(DEFAULT_LOGO_URL)}
+                  />
                 </div>
                 <div>
                   <h1 className="text-xl sm:text-2xl font-black text-[#FF7B9C] tracking-tight leading-none">Si Bunda</h1>
@@ -2088,8 +2107,8 @@ export default function App() {
                         type="text"
                         value={searchLog}
                         onChange={(e) => setSearchLog(e.target.value)}
-                        placeholder="Cari nama / kecamatan..."
-                        className="text-xs p-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-purple-500 outline-none w-48 sm:w-64"
+                        placeholder="Cari nama / nomor HP / kecamatan..."
+                        className="text-xs p-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-purple-500 outline-none w-52 sm:w-72"
                       />
                       <button
                         onClick={exportToCSV}
@@ -2106,6 +2125,7 @@ export default function App() {
                         <tr>
                           <th className="p-3.5">Waktu Kunjungan</th>
                           <th className="p-3.5">Nama Ibu</th>
+                          <th className="p-3.5">Nomor HP / WA</th>
                           <th className="p-3.5">Kecamatan (Kep. Bangka Belitung)</th>
                           <th className="p-3.5 text-center">Status Cloud Sync</th>
                         </tr>
@@ -2115,6 +2135,22 @@ export default function App() {
                           <tr key={log.id || idx} className="hover:bg-purple-50/50 transition">
                             <td className="p-3.5 text-gray-500 text-xs font-mono">{log.timestamp}</td>
                             <td className="p-3.5 font-bold text-gray-800">{log.nama}</td>
+                            <td className="p-3.5 font-mono text-gray-700">
+                              {log.nomorHp ? (
+                                <a
+                                  href={`https://wa.me/${log.nomorHp.replace(/^0/, '62').replace(/\D/g, '')}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-emerald-700 hover:text-emerald-800 hover:underline inline-flex items-center gap-1 font-bold"
+                                  title="Hubungi via WhatsApp"
+                                >
+                                  <i className="fa-brands fa-whatsapp text-emerald-500 text-sm"></i>
+                                  <span>{log.nomorHp}</span>
+                                </a>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
                             <td className="p-3.5 text-[#2EC4B6] font-extrabold">{log.kecamatan}</td>
                             <td className="p-3.5 text-center">
                               <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2.5 py-1 rounded-full inline-flex items-center gap-1">
@@ -2125,7 +2161,7 @@ export default function App() {
                         ))}
                         {filteredLogs.length === 0 && (
                           <tr>
-                            <td colSpan={4} className="p-8 text-center text-gray-400">
+                            <td colSpan={5} className="p-8 text-center text-gray-400">
                               Belum ada data kunjungan yang cocok.
                             </td>
                           </tr>
@@ -2306,18 +2342,20 @@ export default function App() {
                   {/* Logo Preview */}
                   <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 flex items-center gap-4">
                     <div className="w-16 h-16 rounded-2xl bg-white border-2 border-pink-100 flex items-center justify-center p-2 shadow-inner overflow-hidden">
-                      {customLogoUrl ? (
-                        <img src={customLogoUrl} alt="Pratinjau Logo" className="w-full h-full object-contain" />
-                      ) : (
-                        <i className="fa-solid fa-heart-pulse text-2xl text-[#FF7B9C]"></i>
-                      )}
+                      <img
+                        src={customLogoUrl || DEFAULT_LOGO_URL}
+                        alt="Pratinjau Logo Eduzi"
+                        className="w-full h-full object-contain"
+                      />
                     </div>
                     <div>
                       <span className="text-xs font-bold text-gray-800 block">
-                        {customLogoUrl ? 'Logo Kustom Terpasang' : 'Logo Standar Si Bunda'}
+                        {customLogoUrl === DEFAULT_LOGO_URL ? 'Logo Standar Eduzi Aktif' : 'Logo Kustom Terpasang'}
                       </span>
                       <span className="text-[11px] text-gray-400">
-                        {customLogoUrl ? 'Tampil di Header & Footer' : 'Menggunakan ikon hati detak bawaan'}
+                        {customLogoUrl === DEFAULT_LOGO_URL
+                          ? 'Logo resmi Eduzi (Tampil di Header & Footer)'
+                          : 'Logo kustom baru (Tampil di Header & Footer)'}
                       </span>
                     </div>
                   </div>
@@ -2340,13 +2378,13 @@ export default function App() {
                       <span>Unggah File Logo Baru</span>
                     </button>
 
-                    {customLogoUrl && (
+                    {customLogoUrl !== DEFAULT_LOGO_URL && (
                       <button
                         type="button"
                         onClick={handleResetLogo}
                         className="bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold px-4 py-2.5 rounded-xl text-xs transition"
                       >
-                        Reset ke Standar
+                        Reset ke Standar Eduzi
                       </button>
                     )}
                   </div>
@@ -2416,12 +2454,13 @@ export default function App() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-center sm:text-left">
           <div>
             <div className="flex items-center justify-center sm:justify-start gap-2 mb-1">
-              <div className="w-7 h-7 bg-[#FF7B9C] text-white rounded-lg flex items-center justify-center text-xs font-bold overflow-hidden border border-pink-100">
-                {customLogoUrl ? (
-                  <img src={customLogoUrl} alt="Logo Si Bunda" className="w-full h-full object-cover" />
-                ) : (
-                  <i className="fa-solid fa-heart-pulse"></i>
-                )}
+              <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center overflow-hidden border border-pink-100 p-0.5 shadow-2xs">
+                <img
+                  src={customLogoUrl || DEFAULT_LOGO_URL}
+                  alt="Logo Eduzi Si Bunda"
+                  className="w-full h-full object-contain"
+                  onError={() => setCustomLogoUrl(DEFAULT_LOGO_URL)}
+                />
               </div>
               <span className="font-extrabold text-[#FF7B9C] text-lg">Si Bunda</span>
             </div>
@@ -2463,8 +2502,13 @@ export default function App() {
             {welcomeTab === 'user' && (
               <div>
                 <div className="text-center space-y-2 mb-6">
-                  <div className="w-16 h-16 bg-[#FFF0F4] text-[#FF7B9C] rounded-full flex items-center justify-center mx-auto text-3xl shadow-inner">
-                    👶
+                  <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto shadow-md p-1 border-2 border-pink-100 overflow-hidden">
+                    <img
+                      src={customLogoUrl || DEFAULT_LOGO_URL}
+                      alt="Logo Eduzi Si Bunda"
+                      className="w-full h-full object-contain"
+                      onError={() => setCustomLogoUrl(DEFAULT_LOGO_URL)}
+                    />
                   </div>
                   <h3 className="text-2xl font-black text-gray-800">Selamat Datang di Si Bunda!</h3>
                   <p className="text-xs sm:text-sm text-gray-500">
@@ -2511,9 +2555,29 @@ export default function App() {
                     </datalist>
                   </div>
 
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Nomor HP / WhatsApp <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                        <i className="fa-solid fa-phone text-xs"></i>
+                      </div>
+                      <input
+                        type="tel"
+                        required
+                        value={inputNomorHp}
+                        onChange={(e) => setInputNomorHp(e.target.value)}
+                        placeholder="Contoh: 081234567890"
+                        className="w-full text-sm p-3 pl-9 rounded-xl border border-gray-300 focus:ring-2 focus:ring-[#FF7B9C] outline-none font-medium"
+                      />
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">Digunakan untuk konfirmasi & konsultasi tumbuh kembang anak</p>
+                  </div>
+
                   <div className="p-3 bg-teal-50 rounded-xl text-[11px] text-teal-800 flex items-start gap-2 border border-teal-100">
                     <i className="fa-solid fa-shield-halved text-[#2EC4B6] text-base mt-0.5"></i>
-                    <span>Data Anda akan tersimpan rapi untuk pemetaan sasaran edukasi gizi di Bangka Belitung.</span>
+                    <span>Data Anda tersimpan rapi & aman untuk pemetaan sasaran edukasi gizi di Bangka Belitung.</span>
                   </div>
 
                   <button
