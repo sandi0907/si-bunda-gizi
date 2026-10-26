@@ -67,67 +67,15 @@ interface PdfBook {
   pages: RecipePage[];
 }
 
-const DEFAULT_BABEL_DISTRICTS: Record<string, string[]> = {
-  'Kota Pangkalpinang': [
-    'Bukit Intan',
-    'Gabek',
-    'Gerunggang',
-    'Girimaya',
-    'Pangkal Balam',
-    'Rangkui',
-    'Taman Sari',
-  ],
-  'Kab. Bangka': [
-    'Sungailiat',
-    'Belinyu',
-    'Merawang',
-    'Mendo Barat',
-    'Pemali',
-    'Riau Silip',
-    'Bakam',
-    'Puding Besar',
-  ],
-  'Kab. Bangka Barat': [
-    'Mentok',
-    'Jebus',
-    'Kelapa',
-    'Simpang Teritip',
-    'Tempilang',
-    'Parittiga',
-  ],
-  'Kab. Bangka Tengah': [
-    'Koba',
-    'Pangkalan Baru',
-    'Sungai Selan',
-    'Simpang Katis',
-    'Namang',
-    'Lubuk Besar',
-  ],
-  'Kab. Bangka Selatan': [
-    'Toboali',
-    'Airgegas',
-    'Payung',
-    'Simpang Rimba',
-    'Lepar Pongok',
-    'Tukak Sadai',
-    'Pulau Besar',
-  ],
-  'Kab. Belitung': [
-    'Tanjung Pandan',
-    'Sijuk',
-    'Badau',
-    'Membalong',
-    'Selat Nasik',
-  ],
-  'Kab. Belitung Timur': [
-    'Manggar',
-    'Gantung',
-    'Dendang',
-    'Kelapa Kampit',
-    'Damar',
-    'Simpang Rengiang',
-    'Simpang Pesak',
-  ],
+const DEFAULT_DISTRICTS: Record<string, string[]> = {
+  'DKI Jakarta': ['Gambir', 'Menteng', 'Kebayoran Baru', 'Tebet', 'Cilandak'],
+  'Jawa Barat': ['Sukajadi', 'Coblong', 'Bogor Tengah', 'Sukmajaya', 'Bekasi Barat'],
+  'Jawa Tengah': ['Semarang Barat', 'Banyumanik', 'Banjarsari', 'Laweyan'],
+  'Jawa Timur': ['Wonokromo', 'Tegalsari', 'Gubeng', 'Klojen', 'Lowokwaru'],
+  'Sumatera Utara': ['Medan Baru', 'Medan Petisah', 'Medan Kota', 'Siantar Barat'],
+  'Sumatera Barat': ['Padang Barat', 'Padang Timur', 'Koto Tangah', 'Bukittinggi'],
+  'Sulawesi Selatan': ['Panakkukang', 'Ujung Pandang', 'Rappocini', 'Tamalanrea'],
+  'Bali': ['Denpasar Selatan', 'Denpasar Barat', 'Kuta', 'Mengwi', 'Ubud'],
 };
 
 const DEFAULT_GIZI_VIDEOS: VideoItem[] = [
@@ -145,7 +93,7 @@ const DEFAULT_GIZI_VIDEOS: VideoItem[] = [
     category: 'gizi',
     title: 'Pencegahan Stunting Melalui Protein Hewani Sejak Dini',
     youtubeId: '12G34h56i78',
-    description: 'Pentingnya telur, ikan lokal Bangka Belitung, dan daging untuk optimasi tinggi badan anak.',
+    description: 'Pentingnya telur, ikan lokal kaya nutrisi, dan daging untuk optimasi tinggi badan anak.',
     duration: '05:15',
     views: '2.1k',
   },
@@ -407,9 +355,9 @@ export default function App() {
       }
     } else {
       const initialDemoLogs: VisitorLog[] = [
-        { nama: 'Ibu Anita', kecamatan: 'Sungailiat (Kab. Bangka)', nomorHp: '081271234567', timestamp: '2026-10-06 09:15' },
-        { nama: 'Ibu Maya', kecamatan: 'Tanjung Pandan (Kab. Belitung)', nomorHp: '081987654321', timestamp: '2026-10-06 10:40' },
-        { nama: 'Ibu Dewi', kecamatan: 'Bukit Intan (Kota Pangkalpinang)', nomorHp: '082156789012', timestamp: '2026-10-07 08:20' },
+        { nama: 'Ibu Anita', kecamatan: 'Kecamatan Sukajadi', nomorHp: '081271234567', timestamp: '2026-10-06 09:15' },
+        { nama: 'Ibu Maya', kecamatan: 'Kecamatan Gambir', nomorHp: '081987654321', timestamp: '2026-10-06 10:40' },
+        { nama: 'Ibu Dewi', kecamatan: 'Kecamatan Sukmajaya', nomorHp: '082156789012', timestamp: '2026-10-07 08:20' },
       ];
       setVisitorLogs(initialDemoLogs);
       localStorage.setItem('si_bunda_logs', JSON.stringify(initialDemoLogs));
@@ -747,7 +695,7 @@ export default function App() {
           ageCategory: editingPdfBook.ageCategory,
           image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80',
           ingredients: [
-            'Bahan pangan lokal berkualitas tinggi khas Kepulauan Bangka Belitung',
+            'Bahan pangan lokal berkualitas tinggi kaya gizi',
             'Sumber protein hewani pilihan (ikan tenggiri / kembung, telur, ayam, hati sapi)',
             'Sayur segar kaya serat dan vitamin (bayam, wortel, kelor, labu kuning)',
             'Lemak sehat tambahan penunjang energi (minyak kelapa, santan, mentega)',
@@ -857,7 +805,7 @@ export default function App() {
     if (!googleSheetWebhook) return;
     const sampleLog = {
       nama: 'Ibu Contoh (Uji Coba Webhook)',
-      kecamatan: 'Sungailiat (Kab. Bangka)',
+      kecamatan: 'Kecamatan Contoh',
       nomorHp: '081234567890',
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
     };
@@ -973,7 +921,7 @@ export default function App() {
                     : 'text-gray-600 hover:text-[#FF7B9C] font-bold'
                 }`}
               >
-                <i className="fa-solid fa-bowl-food mr-1.5"></i> Gizi Sehat
+                <i className="fa-solid fa-bowl-food mr-1.5"></i> Gizi Balita
               </button>
               <button
                 onClick={() => changePage('kms')}
@@ -1084,7 +1032,7 @@ export default function App() {
                 currentPage === 'gizi' ? 'bg-[#FFF0F4] text-[#FF7B9C] font-bold' : 'text-gray-700'
               }`}
             >
-              <i className="fa-solid fa-bowl-food w-5 text-center"></i> Gizi Sehat untuk Si Kecil
+              <i className="fa-solid fa-bowl-food w-5 text-center"></i> Gizi Balita
             </button>
             <button
               onClick={() => {
@@ -1150,7 +1098,7 @@ export default function App() {
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-4 sm:p-8">
             <div className="text-white">
               <span className="bg-[#FF7B9C] text-white text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-full shadow-sm mb-1 inline-block">
-                Provinsi Kepulauan Bangka Belitung
+                Edukasi Gizi & Balita Indonesia
               </span>
               <h2 className="text-lg sm:text-2xl md:text-3xl font-extrabold tracking-tight drop-shadow-md">
                 Mendampingi Ibu, Menjaga Gizi Si Kecil 👶
@@ -1187,8 +1135,8 @@ export default function App() {
                   Platform Edukasi Gizi Berbasis Web untuk Pengasuhan Balita
                 </h2>
                 <p className="text-gray-600 text-sm sm:text-base leading-relaxed mb-6">
-                  Website <strong>Si Bunda</strong> hadir khusus membantu para Ibu di wilayah{' '}
-                  <strong>Kepulauan Bangka Belitung</strong> dalam pemenuhan gizi seimbang, pemantauan pertumbuhan
+                  Website <strong>Si Bunda</strong> hadir khusus membantu para Ibu{' '}
+                  dalam pemenuhan gizi seimbang, pemantauan pertumbuhan
                   melalui KMS, serta ragam inspirasi resep MP ASI sehat demi mencegah stunting dan mendukung tumbuh
                   kembang optimal anak.
                 </p>
@@ -1220,7 +1168,7 @@ export default function App() {
                     <div className="w-full h-44 bg-[#FFF0F4] rounded-2xl mb-5 flex items-center justify-center p-4 overflow-hidden relative">
                       <img
                         src="https://images.unsplash.com/photo-1584820927498-cfe5211fd8bf?auto=format&fit=crop&w=600&q=80"
-                        alt="Gizi Sehat Ilustrasi"
+                        alt="Gizi Balita Ilustrasi"
                         className="w-full h-full object-cover rounded-xl group-hover:scale-105 transition-transform duration-500"
                       />
                       <span className="absolute top-3 left-3 bg-[#FF7B9C] text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow-sm">
@@ -1228,17 +1176,17 @@ export default function App() {
                       </span>
                     </div>
                     <h4 className="text-lg font-black text-gray-800 mb-2 group-hover:text-[#FF7B9C] transition-colors">
-                      Gizi Sehat untuk Si Kecil
+                      Gizi Balita
                     </h4>
                     <p className="text-gray-600 text-xs sm:text-sm leading-relaxed mb-6">
-                      Penjelasan lengkap video mengenai pentingnya gizi seimbang, zat gizi makro & mikro, porsi makan balita, serta tips pola pengasuhan makan yang menyenangkan agar anak tidak picky eater.
+                      Berisi Informasi Seputar cara pemenuhan gizi dan pengasuhan anak sesuai gizi seimbang dan kebutuhan anak
                     </p>
                   </div>
                   <button
                     onClick={() => changePage('gizi')}
                     className="w-full bg-[#FF7B9C] hover:bg-pink-600 text-white font-bold py-3 px-4 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
                   >
-                    <span>Gizi Sehat untuk Si Kecil</span>
+                    <span>Gizi Balita</span>
                     <i className="fa-solid fa-arrow-right"></i>
                   </button>
                 </div>
@@ -1260,7 +1208,7 @@ export default function App() {
                       Panduan KMS (Kartu Menuju Sehat)
                     </h4>
                     <p className="text-gray-600 text-xs sm:text-sm leading-relaxed mb-6">
-                      Panduan visual dan video mudah membaca grafik pertumbuhan anak di KMS Posyandu, mengenali pita warna berat badan, serta deteksi dini gangguan tumbuh kembang balita.
+                      Berisi cara membaca grafik KMS yang benar serta rekomendasi apa yang dapat dilakukan Bunda apabila grafik KMS anak belum sesuai standar
                     </p>
                   </div>
                   <button
@@ -1289,7 +1237,7 @@ export default function App() {
                       Resep MP ASI Sehat
                     </h4>
                     <p className="text-gray-600 text-xs sm:text-sm leading-relaxed mb-6">
-                      Kumpulan resep Makanan Pendamping ASI bergizi tinggi berbasis bahan lokal yang mudah diolah, tersusun rapi dalam tampilan e-book PDF interaktif gaya Scribd.
+                      Berisi Kumpulan Menu Resep MP-ASI setiap Usia berbasis pangan lokal yang ada di sekitar
                     </p>
                   </div>
                   <button
@@ -1331,7 +1279,7 @@ export default function App() {
           </section>
         )}
 
-        {/* PAGE 2: GIZI SEHAT PAGE */}
+        {/* PAGE 2: GIZI BALITA PAGE */}
         {currentPage === 'gizi' && (
           <section className="space-y-8 animate-in fade-in duration-300">
             <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-pink-100">
@@ -1340,14 +1288,14 @@ export default function App() {
                   Home
                 </button>
                 <span>/</span>
-                <span>Gizi Sehat</span>
+                <span>Gizi Balita</span>
               </div>
               <h2 className="text-2xl sm:text-3xl font-black text-[#FF7B9C] mb-3 flex items-center gap-2">
-                <i className="fa-solid fa-bowl-food"></i> Gizi Sehat untuk Si Kecil
+                <i className="fa-solid fa-bowl-food"></i> Gizi Balita untuk Si Kecil
               </h2>
               <div className="bg-[#FFF0F4] p-4 sm:p-6 rounded-2xl border-l-4 border-[#FF7B9C] text-gray-700 space-y-2">
                 <h3 className="font-extrabold text-base sm:text-lg text-pink-700">
-                  Yuk Kenali Gizi Sehat untuk Tumbuh Kembang Si Kecil!
+                  Yuk Kenali Gizi Balita untuk Tumbuh Kembang Si Kecil!
                 </h3>
                 <p className="text-xs sm:text-sm leading-relaxed">
                   Pahami pentingnya pemberian makanan yang tepat dan pola pengasuhan saat makan untuk mendukung terpenuhinya kebutuhan gizi anak. Yuk, simak penjelasan video berikut untuk mendapatkan informasi bermanfaat dalam mendukung tumbuh kembang si kecil.
@@ -1954,7 +1902,7 @@ export default function App() {
                       </div>
 
                       <div className="absolute bottom-0 inset-x-0 p-3 bg-gray-50 border-t border-gray-100 text-center text-[10px] text-gray-400 font-semibold">
-                        Platform Edukasi Gizi Si Bunda - Kepulauan Bangka Belitung
+                        Platform Edukasi Gizi Si Bunda
                       </div>
                     </div>
                   ))}
@@ -2126,7 +2074,7 @@ export default function App() {
                           <th className="p-3.5">Waktu Kunjungan</th>
                           <th className="p-3.5">Nama Ibu</th>
                           <th className="p-3.5">Nomor HP / WA</th>
-                          <th className="p-3.5">Kecamatan (Kep. Bangka Belitung)</th>
+                          <th className="p-3.5">Kecamatan / Wilayah</th>
                           <th className="p-3.5 text-center">Status Cloud Sync</th>
                         </tr>
                       </thead>
@@ -2464,10 +2412,10 @@ export default function App() {
               </div>
               <span className="font-extrabold text-[#FF7B9C] text-lg">Si Bunda</span>
             </div>
-            <p className="text-xs text-gray-500">Platform Edukasi Gizi & Pengasuhan Balita Kepulauan Bangka Belitung</p>
+            <p className="text-xs text-gray-500">Platform Edukasi Gizi & Pengasuhan Balita</p>
           </div>
           <div className="text-xs text-gray-400">
-            &copy; 2026 Si Bunda. Dikembangkan untuk Ahli Gizi & Ibu Cerdas Indonesia.
+            2026 Si Bunda.
           </div>
         </div>
       </footer>
@@ -2512,7 +2460,7 @@ export default function App() {
                   </div>
                   <h3 className="text-2xl font-black text-gray-800">Selamat Datang di Si Bunda!</h3>
                   <p className="text-xs sm:text-sm text-gray-500">
-                    Platform edukasi gizi & tumbuh kembang anak untuk Ibu di Provinsi Kepulauan Bangka Belitung.
+                    Platform edukasi gizi & tumbuh kembang anak untuk Ibu dan keluarga di Indonesia.
                   </p>
                 </div>
 
@@ -2538,17 +2486,17 @@ export default function App() {
                     <input
                       type="text"
                       required
-                      list="babel-kecamatan-list"
+                      list="kecamatan-list"
                       value={inputKecamatan}
                       onChange={(e) => setInputKecamatan(e.target.value)}
-                      placeholder="Contoh: Sungailiat / Koba / Tanjung Pandan"
+                      placeholder="Contoh: Gambir / Sukajadi / Sukmajaya / dll."
                       className="w-full text-sm p-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-[#FF7B9C] outline-none"
                     />
-                    <datalist id="babel-kecamatan-list">
-                      {Object.entries(DEFAULT_BABEL_DISTRICTS).flatMap(([kabKota, districts]) =>
+                    <datalist id="kecamatan-list">
+                      {Object.entries(DEFAULT_DISTRICTS).flatMap(([provinsi, districts]) =>
                         districts.map((kec) => (
-                          <option key={`${kec}-${kabKota}`} value={`${kec} (${kabKota})`}>
-                            {kec} - {kabKota}
+                          <option key={`${kec}-${provinsi}`} value={`${kec} (${provinsi})`}>
+                            {kec} - {provinsi}
                           </option>
                         ))
                       )}
@@ -2577,7 +2525,7 @@ export default function App() {
 
                   <div className="p-3 bg-teal-50 rounded-xl text-[11px] text-teal-800 flex items-start gap-2 border border-teal-100">
                     <i className="fa-solid fa-shield-halved text-[#2EC4B6] text-base mt-0.5"></i>
-                    <span>Data Anda tersimpan rapi & aman untuk pemetaan sasaran edukasi gizi di Bangka Belitung.</span>
+                    <span>Data Anda tersimpan rapi & aman untuk pemetaan sasaran edukasi gizi keluarga.</span>
                   </div>
 
                   <button
@@ -2745,7 +2693,7 @@ export default function App() {
                   }
                   className="w-full p-2.5 rounded-xl border mt-1"
                 >
-                  <option value="gizi">Gizi Sehat untuk Si Kecil</option>
+                  <option value="gizi">Gizi Balita untuk Si Kecil</option>
                   <option value="kms">Panduan KMS</option>
                 </select>
               </div>

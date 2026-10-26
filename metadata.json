@@ -1,6 +1,6 @@
 {
   "name": "Si Bunda - Edukasi Gizi & Tumbuh Kembang Balita",
-  "description": "Platform edukasi gizi berbasis web yang membantu ibu dalam pemenuhan gizi dan pengasuhan balita di Kepulauan Bangka Belitung.",
+  "description": "Platform edukasi gizi berbasis web yang membantu ibu dalam pemenuhan gizi dan pengasuhan balita di Indonesia.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

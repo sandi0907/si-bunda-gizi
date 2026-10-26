@@ -62,7 +62,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   whatsappConsultantName: 'Konsultan Ahli Gizi Si Bunda',
   googleSheetsWebhookUrl: '',
   siteTitle: 'Si Bunda',
-  tagline: 'Platform Edukasi Gizi & Pengasuhan Balita - Kepulauan Bangka Belitung',
+  tagline: 'Platform Edukasi Gizi & Pengasuhan Balita Indonesia',
 };
 
 // Initial Educational Videos for "Gizi Sehat untuk Si Kecil"
