@@ -22,7 +22,6 @@ import {
   base64ToBlobUrl,
 } from './utils/pdfStorage';
 import { PortraitReelCard } from './components/PortraitReelCard';
-import { ReelsFeedModal } from './components/ReelsFeedModal';
 
 const DEFAULT_LOGO_URL = '/assets/aistudio/logo_eduzi_2507d203.png';
 
@@ -1416,7 +1415,7 @@ export default function App() {
                       </span>
                     </h3>
                     <p className="text-xs text-gray-500">
-                      Tampilan video potrait vertikal modern ala Reels dengan interaksi like, konsultasi gizi & simpan
+                      Kumpulan video edukasi seputar cara pemenuhan gizi dan pengasuhan anak
                     </p>
                   </div>
                 </div>
@@ -1425,14 +1424,6 @@ export default function App() {
                   <span className="text-xs text-gray-500 font-bold bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-2xs">
                     {giziVideos.length} Video Tersedia
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => openFullscreenReels('gizi', 0)}
-                    className="bg-[#FF7B9C] hover:bg-pink-600 text-white font-extrabold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-md hover:shadow-lg transition active:scale-95"
-                  >
-                    <i className="fa-solid fa-play"></i>
-                    <span>Tonton Mode Reels</span>
-                  </button>
                   {isAdmin && (
                     <button
                       type="button"
@@ -1448,7 +1439,7 @@ export default function App() {
 
               {/* Grid of Portrait Reel Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 justify-items-center">
-                {giziVideos.map((video, idx) => (
+                {giziVideos.map((video) => (
                   <PortraitReelCard
                     key={video.id}
                     video={video}
@@ -1459,15 +1450,6 @@ export default function App() {
                     isAdmin={isAdmin}
                     onEdit={() => editVideo(video, 'gizi')}
                     onDelete={() => setDeletingVideoTarget({ id: video.id, category: 'gizi' })}
-                    whatsappNumber={whatsappNumber}
-                    isLiked={!!likedVideos[video.id]}
-                    likeCount={likeCounts[video.id] || 210 + ((Number(video.id) || 1) * 37) % 500}
-                    onToggleLike={() => toggleLike(video.id)}
-                    isSaved={!!savedVideos[video.id]}
-                    onToggleSave={() => toggleSave(video.id)}
-                    onShare={() => shareVideo(video)}
-                    onOpenFullscreen={() => openFullscreenReels('gizi', idx)}
-                    logoUrl={customLogoUrl || DEFAULT_LOGO_URL}
                   />
                 ))}
               </div>
@@ -1514,7 +1496,7 @@ export default function App() {
                       </span>
                     </h3>
                     <p className="text-xs text-gray-500">
-                      Tutorial membaca grafik & pemantauan KMS dalam format video vertikal ala Reels
+                      Tutorial membaca grafik & pemantauan KMS dalam format video vertikal
                     </p>
                   </div>
                 </div>
@@ -1523,14 +1505,6 @@ export default function App() {
                   <span className="text-xs text-gray-500 font-bold bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-2xs">
                     {kmsVideos.length} Video Tersedia
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => openFullscreenReels('kms', 0)}
-                    className="bg-[#2EC4B6] hover:bg-teal-600 text-white font-extrabold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-md hover:shadow-lg transition active:scale-95"
-                  >
-                    <i className="fa-solid fa-play"></i>
-                    <span>Tonton Mode Reels</span>
-                  </button>
                   {isAdmin && (
                     <button
                       type="button"
@@ -1546,7 +1520,7 @@ export default function App() {
 
               {/* Grid of Portrait Reel Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 justify-items-center">
-                {kmsVideos.map((video, idx) => (
+                {kmsVideos.map((video) => (
                   <PortraitReelCard
                     key={video.id}
                     video={video}
@@ -1557,15 +1531,6 @@ export default function App() {
                     isAdmin={isAdmin}
                     onEdit={() => editVideo(video, 'kms')}
                     onDelete={() => setDeletingVideoTarget({ id: video.id, category: 'kms' })}
-                    whatsappNumber={whatsappNumber}
-                    isLiked={!!likedVideos[video.id]}
-                    likeCount={likeCounts[video.id] || 160 + ((Number(video.id) || 1) * 29) % 400}
-                    onToggleLike={() => toggleLike(video.id)}
-                    isSaved={!!savedVideos[video.id]}
-                    onToggleSave={() => toggleSave(video.id)}
-                    onShare={() => shareVideo(video)}
-                    onOpenFullscreen={() => openFullscreenReels('kms', idx)}
-                    logoUrl={customLogoUrl || DEFAULT_LOGO_URL}
                   />
                 ))}
               </div>
@@ -3130,23 +3095,6 @@ export default function App() {
         </div>
       )}
 
-      {/* 7. FULLSCREEN REELS FEED VIEWER */}
-      <ReelsFeedModal
-        isOpen={reelsModalOpen}
-        onClose={() => setReelsModalOpen(false)}
-        videos={reelsCategory === 'gizi' ? giziVideos : kmsVideos}
-        currentIndex={reelsIndex}
-        onNavigate={(idx) => setReelsIndex(idx)}
-        category={reelsCategory}
-        whatsappNumber={whatsappNumber}
-        likedVideos={likedVideos}
-        likeCounts={likeCounts}
-        onToggleLike={toggleLike}
-        savedVideos={savedVideos}
-        onToggleSave={toggleSave}
-        onShare={shareVideo}
-        logoUrl={customLogoUrl}
-      />
 
       {/* TOAST NOTIFICATION */}
       {toastMessage && (
