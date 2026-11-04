@@ -63,6 +63,25 @@ export async function getAllPdfBooksFromIndexedDB(): Promise<any[] | null> {
   }
 }
 
+export async function getPdfBookFromIndexedDB(bookId: string): Promise<any | null> {
+  try {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const req = store.get(bookId);
+
+      req.onsuccess = () => {
+        resolve(req.result || null);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn('IndexedDB get error:', err);
+    return null;
+  }
+}
+
 export async function deletePdfBookFromIndexedDB(bookId: string): Promise<void> {
   try {
     const db = await openDatabase();

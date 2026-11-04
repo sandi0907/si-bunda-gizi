@@ -5,19 +5,24 @@ import {
   dbSaveVideo,
   dbDeleteVideo,
   dbSavePdfBook,
+  dbFetchPdfChunks,
   dbDeletePdfBook,
   subscribeToVisitorLogs,
   subscribeToWebhookSettings,
   subscribeToVideos,
   subscribeToPdfBooks,
+  initCloudPdfCatalog,
   sendToGoogleSheet,
 } from './services/firebaseSync';
 import {
   savePdfBookToIndexedDB,
   getAllPdfBooksFromIndexedDB,
+  getPdfBookFromIndexedDB,
   deletePdfBookFromIndexedDB,
   base64ToBlobUrl,
 } from './utils/pdfStorage';
+import { PortraitReelCard } from './components/PortraitReelCard';
+import { ReelsFeedModal } from './components/ReelsFeedModal';
 
 const DEFAULT_LOGO_URL = '/assets/aistudio/logo_eduzi_2507d203.png';
 
@@ -65,6 +70,9 @@ interface PdfBook {
   uploadedAt?: string;
   ageCategory?: string;
   pages: RecipePage[];
+  hasCloudPdf?: boolean;
+  chunkCount?: number;
+  updatedAt?: number;
 }
 
 const DEFAULT_DISTRICTS: Record<string, string[]> = {
@@ -227,6 +235,41 @@ export default function App() {
   const [deletingPdfTarget, setDeletingPdfTarget] = useState<string | null>(null);
 
   const [googleSheetWebhook, setGoogleSheetWebhook] = useState('');
+
+  // Cloud sync progress & status for PDF documents
+  const [cloudLoadingBookId, setCloudLoadingBookId] = useState<string | null>(null);
+  const [cloudUploadProgress, setCloudUploadProgress] = useState<number | null>(null);
+
+  // TikTok / Reels interactive state
+  const [likedVideos, setLikedVideos] = useState<Record<string | number, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('si_bunda_liked_vids');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [likeCounts, setLikeCounts] = useState<Record<string | number, number>>(() => {
+    try {
+      const saved = localStorage.getItem('si_bunda_like_counts');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [savedVideos, setSavedVideos] = useState<Record<string | number, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('si_bunda_saved_vids');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // Fullscreen Reels Viewer Modal
+  const [reelsModalOpen, setReelsModalOpen] = useState(false);
+  const [reelsCategory, setReelsCategory] = useState<'gizi' | 'kms'>('gizi');
+  const [reelsIndex, setReelsIndex] = useState(0);
 
   // Form input
   const [inputNama, setInputNama] = useState('');
@@ -414,21 +457,33 @@ export default function App() {
       }
     });
 
-    const unsubPdfBooks = subscribeToPdfBooks((books) => {
-      if (Array.isArray(books) && books.length > 0) {
-        setPdfBooks((prev) => {
-          const merged = [...prev];
-          books.forEach((b) => {
-            const idx = merged.findIndex((m) => m.id === b.id);
-            if (idx === -1) {
-              merged.push(b);
-            } else if (!merged[idx].pdfFileUrl && b.pdfFileUrl) {
-              merged[idx] = { ...merged[idx], ...b };
-            }
-          });
-          return merged;
-        });
+    const unsubPdfBooks = subscribeToPdfBooks((cloudBooks) => {
+      if (!Array.isArray(cloudBooks)) return;
+
+      if (cloudBooks.length === 0) {
+        // Seed default books once if cloud is clean
+        initCloudPdfCatalog(DEFAULT_PDF_BOOKS);
+        return;
       }
+
+      setPdfBooks((prev) => {
+        // Authoritative cloud list: any deletions by admin will immediately disappear on all user devices!
+        return cloudBooks.map((cb) => {
+          const existing = prev.find((p) => p.id === cb.id);
+          return {
+            ...cb,
+            pdfFileUrl: existing?.pdfFileUrl || cb.pdfFileUrl || '',
+          };
+        });
+      });
+
+      setSelectedPdf((current) => {
+        const stillExists = cloudBooks.find((cb) => cb.id === current.id);
+        if (!stillExists && cloudBooks.length > 0) {
+          return cloudBooks[0];
+        }
+        return current;
+      });
     });
 
     return () => {
@@ -565,14 +620,17 @@ export default function App() {
   };
 
   // Video Management
-  const openVideoModal = () => {
-    setEditingVideo({ id: '', category: 'gizi', title: '', youtubeId: '', description: '' });
+  const openVideoModal = (initialVideo?: VideoItem, category: 'gizi' | 'kms' = 'gizi') => {
+    if (initialVideo && 'title' in initialVideo) {
+      setEditingVideo({ ...initialVideo, category });
+    } else {
+      setEditingVideo({ id: '', category, title: '', youtubeId: '', description: '' });
+    }
     setShowVideoFormModal(true);
   };
 
   const editVideo = (video: VideoItem, category: 'gizi' | 'kms') => {
-    setEditingVideo({ ...video, category });
-    setShowVideoFormModal(true);
+    openVideoModal(video, category);
   };
 
   const saveVideoForm = (e: React.FormEvent) => {
@@ -716,8 +774,10 @@ export default function App() {
     // 1. Save to high-capacity IndexedDB (handles files up to 100MB+)
     await savePdfBookToIndexedDB(newBook);
 
-    // 2. Sync to Firebase Firestore
-    dbSavePdfBook(newBook);
+    // 2. Sync to Firebase Firestore with chunks so all users across all devices receive it!
+    setCloudUploadProgress(10);
+    await dbSavePdfBook(newBook, (pct) => setCloudUploadProgress(pct));
+    setCloudUploadProgress(null);
 
     // 3. Update React state
     setPdfBooks((prev) => {
@@ -753,7 +813,7 @@ export default function App() {
       setCurrentPage('mpasi');
     }
 
-    showToast(`Buku "${newBook.title}" berhasil diunggah! Koleksi resep di Halaman Resep MP-ASI kini telah bertambah.`);
+    showToast(`Buku "${newBook.title}" berhasil diunggah ke Cloud! Semua pengguna dapat langsung mengaksesnya.`);
   };
 
   const executeDeletePdf = async () => {
@@ -761,7 +821,7 @@ export default function App() {
     const targetId = deletingPdfTarget;
 
     await deletePdfBookFromIndexedDB(targetId);
-    dbDeletePdfBook(targetId);
+    await dbDeletePdfBook(targetId);
 
     setPdfBooks((prev) => {
       const updated = prev.filter((b) => b.id !== targetId);
@@ -774,14 +834,60 @@ export default function App() {
       return updated;
     });
     setDeletingPdfTarget(null);
-    showToast('Buku PDF berhasil dihapus.');
+    showToast('Buku PDF berhasil dihapus dari Cloud.');
+  };
+
+  // Helper to ensure PDF data URL is loaded (fetches chunks from Firestore on demand if needed)
+  const ensurePdfLoaded = async (book: PdfBook): Promise<string | null> => {
+    if (book.pdfFileUrl && book.pdfFileUrl.length > 100) {
+      return book.pdfFileUrl;
+    }
+
+    // 1. Check local IndexedDB cache first
+    try {
+      const cached = await getPdfBookFromIndexedDB(book.id);
+      if (cached && cached.pdfFileUrl && cached.pdfFileUrl.length > 100) {
+        setPdfBooks((prev) =>
+          prev.map((b) => (b.id === book.id ? { ...b, pdfFileUrl: cached.pdfFileUrl } : b))
+        );
+        setSelectedPdf((prev) => (prev.id === book.id ? { ...prev, pdfFileUrl: cached.pdfFileUrl } : prev));
+        return cached.pdfFileUrl;
+      }
+    } catch {}
+
+    // 2. Fetch chunks from cloud Firestore
+    setCloudLoadingBookId(book.id);
+    showToast('Mengunduh dokumen PDF dari Cloud...');
+    try {
+      const dataUrl = await dbFetchPdfChunks(book.id);
+      if (dataUrl) {
+        await savePdfBookToIndexedDB({ ...book, pdfFileUrl: dataUrl });
+        setPdfBooks((prev) =>
+          prev.map((b) => (b.id === book.id ? { ...b, pdfFileUrl: dataUrl } : b))
+        );
+        setSelectedPdf((prev) => (prev.id === book.id ? { ...prev, pdfFileUrl: dataUrl } : prev));
+        showToast('Dokumen PDF berhasil dimuat dari Cloud!');
+        return dataUrl;
+      }
+    } catch (err) {
+      console.error('Failed to load PDF chunks:', err);
+      showToast('Gagal memuat dokumen PDF dari cloud.');
+    } finally {
+      setCloudLoadingBookId(null);
+    }
+    return null;
   };
 
   // Download PDF File Helper
-  const downloadPdfFile = (book: PdfBook) => {
-    if (book.pdfFileUrl && book.pdfFileUrl.startsWith('data:')) {
+  const downloadPdfFile = async (book: PdfBook) => {
+    let fileUrl = book.pdfFileUrl;
+    if (!fileUrl || fileUrl.length < 100) {
+      fileUrl = (await ensurePdfLoaded(book)) || undefined;
+    }
+
+    if (fileUrl && fileUrl.startsWith('data:')) {
       const a = document.createElement('a');
-      a.href = book.pdfFileUrl;
+      a.href = fileUrl;
       a.download = book.fileName || `${book.title}.pdf`;
       document.body.appendChild(a);
       a.click();
@@ -792,6 +898,62 @@ export default function App() {
     } else {
       window.print();
     }
+  };
+
+  // Interactive VT / Reels helpers
+  const toggleLike = (videoId: string | number) => {
+    setLikedVideos((prev) => {
+      const newState = !prev[videoId];
+      const updated = { ...prev, [videoId]: newState };
+      try {
+        localStorage.setItem('si_bunda_liked_vids', JSON.stringify(updated));
+      } catch {}
+
+      // Update count
+      setLikeCounts((cPrev) => {
+        const cur = cPrev[videoId] || 150 + ((Number(videoId) || 1) * 31) % 400;
+        const newCount = newState ? cur + 1 : Math.max(0, cur - 1);
+        const countUpdated = { ...cPrev, [videoId]: newCount };
+        try {
+          localStorage.setItem('si_bunda_like_counts', JSON.stringify(countUpdated));
+        } catch {}
+        return countUpdated;
+      });
+
+      if (newState) {
+        showToast('❤️ Disukai! Ditambahkan ke interaksi VT Bunda.');
+      }
+      return updated;
+    });
+  };
+
+  const toggleSave = (videoId: string | number) => {
+    setSavedVideos((prev) => {
+      const newState = !prev[videoId];
+      const updated = { ...prev, [videoId]: newState };
+      try {
+        localStorage.setItem('si_bunda_saved_vids', JSON.stringify(updated));
+      } catch {}
+      showToast(newState ? '🔖 Video disimpan ke koleksi favorit!' : 'Dihapus dari simpanan.');
+      return updated;
+    });
+  };
+
+  const shareVideo = (video: VideoItem) => {
+    const shareUrl = `https://www.youtube.com/watch?v=${video.youtubeId}`;
+    const shareText = `Tonton video edukasi "${video.title}" di Si Bunda: ${shareUrl}`;
+    if (navigator.share) {
+      navigator.share({ title: video.title, text: video.description, url: shareUrl }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(shareText);
+      showToast('🔗 Link video VT berhasil disalin ke clipboard!');
+    }
+  };
+
+  const openFullscreenReels = (category: 'gizi' | 'kms', startIndex = 0) => {
+    setReelsCategory(category);
+    setReelsIndex(startIndex);
+    setReelsModalOpen(true);
   };
 
   // Webhook and CSV Helpers
@@ -1303,84 +1465,74 @@ export default function App() {
               </div>
             </div>
 
-            {/* TikTok 2-Column Grid Layout */}
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-black text-gray-800 flex items-center gap-2">
-                  <i className="fa-solid fa-circle-play text-[#FF7B9C]"></i> Galeri Video Edukasi Gizi
-                </h3>
-                <span className="text-xs text-gray-500 font-semibold">{giziVideos.length} Video Tersedia</span>
+            {/* VT / Reels Portrait Video Gallery (9:16) */}
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-pink-50 via-white to-pink-50/40 p-4 rounded-3xl border border-pink-200/80 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-[#FF7B9C] text-white flex items-center justify-center text-xl shadow-md">
+                    <i className="fa-solid fa-mobile-screen-button"></i>
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black text-gray-800 flex items-center gap-2">
+                      <span>Galeri VT Gizi Balita</span>
+                      <span className="text-[10px] bg-[#FF7B9C]/15 text-[#FF7B9C] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                        Reels Potrait (9:16)
+                      </span>
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      Tampilan video potrait vertikal modern ala Reels & TikTok dengan interaksi like, konsultasi gizi & simpan
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 font-bold bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-2xs">
+                    {giziVideos.length} VT Tersedia
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => openFullscreenReels('gizi', 0)}
+                    className="bg-[#FF7B9C] hover:bg-pink-600 text-white font-extrabold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-md hover:shadow-lg transition active:scale-95"
+                  >
+                    <i className="fa-solid fa-play"></i>
+                    <span>Tonton Mode Reels</span>
+                  </button>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => openVideoModal(undefined, 'gizi')}
+                      className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow transition"
+                    >
+                      <i className="fa-solid fa-plus"></i>
+                      <span>Tambah VT</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 gap-3 sm:gap-6">
-                {giziVideos.map((video) => (
-                  <div
+              {/* Grid of Portrait Reel Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 justify-items-center">
+                {giziVideos.map((video, idx) => (
+                  <PortraitReelCard
                     key={video.id}
-                    className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md border border-gray-100 flex flex-col justify-between group transition"
-                  >
-                    <div className="relative w-full bg-black aspect-video sm:aspect-[16/10] overflow-hidden">
-                      {activeVideoId === video.id ? (
-                        <iframe
-                          src={`https://www.youtube.com/embed/${video.youtubeId}?autoplay=1`}
-                          title={video.title}
-                          className="w-full h-full border-0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                        />
-                      ) : (
-                        <div
-                          onClick={() => setActiveVideoId(video.id)}
-                          className="w-full h-full cursor-pointer relative group/thumb"
-                        >
-                          <img
-                            src={video.thumbnail || `https://img.youtube.com/vi/${video.youtubeId}/hqdefault.jpg`}
-                            alt={video.title}
-                            className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform duration-300"
-                          />
-                          <div className="absolute inset-0 bg-black/30 group-hover/thumb:bg-black/20 transition-colors flex items-center justify-center">
-                            <div className="w-12 h-12 sm:w-16 sm:h-16 bg-[#FF7B9C]/90 text-white rounded-full flex items-center justify-center shadow-lg group-hover/thumb:scale-110 transition-transform">
-                              <i className="fa-solid fa-play text-lg sm:text-2xl ml-1"></i>
-                            </div>
-                          </div>
-                          <span className="absolute bottom-2 right-2 bg-black/70 text-white text-[10px] font-bold px-2 py-0.5 rounded-md">
-                            {video.duration || '03:45'}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="p-3 sm:p-5 flex-grow flex flex-col justify-between">
-                      <div>
-                        <h4 className="font-bold text-xs sm:text-base text-gray-800 line-clamp-2 mb-1 group-hover:text-[#FF7B9C] transition">
-                          {video.title}
-                        </h4>
-                        <p className="text-[11px] sm:text-xs text-gray-500 line-clamp-2 leading-snug mb-3">
-                          {video.description}
-                        </p>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] sm:text-xs text-gray-400 font-semibold pt-2 border-t border-gray-50">
-                        <span>
-                          <i className="fa-solid fa-eye mr-1"></i> {video.views || '1.2k'} tontonan
-                        </span>
-                        {isAdmin && (
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => editVideo(video, 'gizi')}
-                              className="text-blue-500 hover:underline font-bold"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => setDeletingVideoTarget({ id: video.id, category: 'gizi' })}
-                              className="text-red-500 hover:underline font-bold"
-                            >
-                              Hapus
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                    video={video}
+                    category="gizi"
+                    isActive={activeVideoId === video.id}
+                    onPlay={() => setActiveVideoId(video.id)}
+                    onClose={() => setActiveVideoId(null)}
+                    isAdmin={isAdmin}
+                    onEdit={() => editVideo(video, 'gizi')}
+                    onDelete={() => setDeletingVideoTarget({ id: video.id, category: 'gizi' })}
+                    whatsappNumber={whatsappNumber}
+                    isLiked={!!likedVideos[video.id]}
+                    likeCount={likeCounts[video.id] || 210 + ((Number(video.id) || 1) * 37) % 500}
+                    onToggleLike={() => toggleLike(video.id)}
+                    isSaved={!!savedVideos[video.id]}
+                    onToggleSave={() => toggleSave(video.id)}
+                    onShare={() => shareVideo(video)}
+                    onOpenFullscreen={() => openFullscreenReels('gizi', idx)}
+                    logoUrl={customLogoUrl || DEFAULT_LOGO_URL}
+                  />
                 ))}
               </div>
             </div>
@@ -1411,83 +1563,74 @@ export default function App() {
               </div>
             </div>
 
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-black text-gray-800 flex items-center gap-2">
-                  <i className="fa-solid fa-circle-play text-[#2EC4B6]"></i> Video Tutorial & Pemantauan KMS
-                </h3>
-                <span className="text-xs text-gray-500 font-semibold">{kmsVideos.length} Video Tersedia</span>
+            {/* VT / Reels Portrait Video Gallery (9:16) */}
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-teal-50 via-white to-teal-50/40 p-4 rounded-3xl border border-teal-200/80 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-[#2EC4B6] text-white flex items-center justify-center text-xl shadow-md">
+                    <i className="fa-solid fa-mobile-screen-button"></i>
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black text-gray-800 flex items-center gap-2">
+                      <span>Galeri VT Panduan KMS</span>
+                      <span className="text-[10px] bg-[#2EC4B6]/15 text-[#2EC4B6] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                        Reels Potrait (9:16)
+                      </span>
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      Tutorial membaca grafik & pemantauan KMS dalam format video vertikal ala Reels & TikTok
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 font-bold bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-2xs">
+                    {kmsVideos.length} VT Tersedia
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => openFullscreenReels('kms', 0)}
+                    className="bg-[#2EC4B6] hover:bg-teal-600 text-white font-extrabold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-md hover:shadow-lg transition active:scale-95"
+                  >
+                    <i className="fa-solid fa-play"></i>
+                    <span>Tonton Mode Reels</span>
+                  </button>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => openVideoModal(undefined, 'kms')}
+                      className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow transition"
+                    >
+                      <i className="fa-solid fa-plus"></i>
+                      <span>Tambah VT</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 gap-3 sm:gap-6">
-                {kmsVideos.map((video) => (
-                  <div
+              {/* Grid of Portrait Reel Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 justify-items-center">
+                {kmsVideos.map((video, idx) => (
+                  <PortraitReelCard
                     key={video.id}
-                    className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md border border-gray-100 flex flex-col justify-between group transition"
-                  >
-                    <div className="relative w-full bg-black aspect-video sm:aspect-[16/10] overflow-hidden">
-                      {activeVideoId === video.id ? (
-                        <iframe
-                          src={`https://www.youtube.com/embed/${video.youtubeId}?autoplay=1`}
-                          title={video.title}
-                          className="w-full h-full border-0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                        />
-                      ) : (
-                        <div
-                          onClick={() => setActiveVideoId(video.id)}
-                          className="w-full h-full cursor-pointer relative group/thumb"
-                        >
-                          <img
-                            src={video.thumbnail || `https://img.youtube.com/vi/${video.youtubeId}/hqdefault.jpg`}
-                            alt={video.title}
-                            className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform duration-300"
-                          />
-                          <div className="absolute inset-0 bg-black/30 group-hover/thumb:bg-black/20 transition-colors flex items-center justify-center">
-                            <div className="w-12 h-12 sm:w-16 sm:h-16 bg-[#2EC4B6]/90 text-white rounded-full flex items-center justify-center shadow-lg group-hover/thumb:scale-110 transition-transform">
-                              <i className="fa-solid fa-play text-lg sm:text-2xl ml-1"></i>
-                            </div>
-                          </div>
-                          <span className="absolute bottom-2 right-2 bg-black/70 text-white text-[10px] font-bold px-2 py-0.5 rounded-md">
-                            {video.duration || '04:10'}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="p-3 sm:p-5 flex-grow flex flex-col justify-between">
-                      <div>
-                        <h4 className="font-bold text-xs sm:text-base text-gray-800 line-clamp-2 mb-1 group-hover:text-[#2EC4B6] transition">
-                          {video.title}
-                        </h4>
-                        <p className="text-[11px] sm:text-xs text-gray-500 line-clamp-2 leading-snug mb-3">
-                          {video.description}
-                        </p>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] sm:text-xs text-gray-400 font-semibold pt-2 border-t border-gray-50">
-                        <span>
-                          <i className="fa-solid fa-eye mr-1"></i> {video.views || '850'} tontonan
-                        </span>
-                        {isAdmin && (
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => editVideo(video, 'kms')}
-                              className="text-blue-500 hover:underline font-bold"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => setDeletingVideoTarget({ id: video.id, category: 'kms' })}
-                              className="text-red-500 hover:underline font-bold"
-                            >
-                              Hapus
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                    video={video}
+                    category="kms"
+                    isActive={activeVideoId === video.id}
+                    onPlay={() => setActiveVideoId(video.id)}
+                    onClose={() => setActiveVideoId(null)}
+                    isAdmin={isAdmin}
+                    onEdit={() => editVideo(video, 'kms')}
+                    onDelete={() => setDeletingVideoTarget({ id: video.id, category: 'kms' })}
+                    whatsappNumber={whatsappNumber}
+                    isLiked={!!likedVideos[video.id]}
+                    likeCount={likeCounts[video.id] || 160 + ((Number(video.id) || 1) * 29) % 400}
+                    onToggleLike={() => toggleLike(video.id)}
+                    isSaved={!!savedVideos[video.id]}
+                    onToggleSave={() => toggleSave(video.id)}
+                    onShare={() => shareVideo(video)}
+                    onOpenFullscreen={() => openFullscreenReels('kms', idx)}
+                    logoUrl={customLogoUrl || DEFAULT_LOGO_URL}
+                  />
                 ))}
               </div>
             </div>
@@ -1575,9 +1718,10 @@ export default function App() {
                           <span className="bg-amber-100 text-amber-900 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wide">
                             {book.ageCategory || 'MP-ASI'}
                           </span>
-                          {book.pdfFileUrl ? (
+                          {book.pdfFileUrl || book.hasCloudPdf ? (
                             <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                              <i className="fa-solid fa-file-pdf text-emerald-600"></i> File PDF Aktif ({book.fileSize || 'Tersedia'})
+                              <i className="fa-solid fa-cloud-arrow-down text-emerald-600"></i>
+                              <span>File PDF Cloud ({book.fileSize || 'Tersedia'})</span>
                             </span>
                           ) : (
                             <span className="bg-gray-100 text-gray-600 text-[10px] font-bold px-2 py-0.5 rounded-full">
@@ -1606,10 +1750,12 @@ export default function App() {
                       <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
                         <button
                           type="button"
-                          onClick={() => {
+                          disabled={cloudLoadingBookId === book.id}
+                          onClick={async () => {
                             setSelectedPdf(book);
-                            if (book.pdfFileUrl) {
-                              setPdfViewMode('embed');
+                            setPdfViewMode('embed');
+                            if (!book.pdfFileUrl || book.pdfFileUrl.length < 100) {
+                              await ensurePdfLoaded(book);
                             }
                             const readerElem = document.getElementById('mpasi-reader');
                             if (readerElem) {
@@ -1622,8 +1768,17 @@ export default function App() {
                               : 'bg-amber-50 hover:bg-amber-100 text-amber-800'
                           }`}
                         >
-                          <i className="fa-solid fa-book-open"></i>
-                          <span>{isSelected ? 'Sedang Dibaca' : 'Buka Resep'}</span>
+                          {cloudLoadingBookId === book.id ? (
+                            <>
+                              <i className="fa-solid fa-spinner animate-spin"></i>
+                              <span>Mengunduh...</span>
+                            </>
+                          ) : (
+                            <>
+                              <i className="fa-solid fa-book-open"></i>
+                              <span>{isSelected ? 'Sedang Dibaca' : 'Buka Resep'}</span>
+                            </>
+                          )}
                         </button>
 
                         <div className="flex items-center gap-2">
@@ -1780,7 +1935,7 @@ export default function App() {
               </div>
 
               {/* View Mode: Embedded PDF Viewer */}
-              {pdfViewMode === 'embed' && selectedPdf.pdfFileUrl ? (
+              {pdfViewMode === 'embed' && (selectedPdf.pdfFileUrl || selectedPdf.hasCloudPdf) ? (
                 <div className="w-full bg-gray-900 flex flex-col">
                   {/* Top Bar for File PDF Mode */}
                   <div className="bg-gray-800/90 px-4 py-2 border-b border-gray-700/80 flex flex-wrap items-center justify-between text-xs text-gray-300 gap-2">
@@ -1792,19 +1947,24 @@ export default function App() {
                       {selectedPdf.fileSize && (
                         <span className="text-[10px] text-gray-400">({selectedPdf.fileSize})</span>
                       )}
+                      <span className="bg-emerald-950/70 text-emerald-300 text-[10px] px-2 py-0.5 rounded border border-emerald-600/40">
+                        ☁️ Cloud PDF
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const url = base64ToBlobUrl(selectedPdf.pdfFileUrl!);
-                          window.open(url, '_blank');
-                        }}
-                        className="bg-gray-700 hover:bg-gray-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition"
-                      >
-                        <i className="fa-solid fa-arrow-up-right-from-square"></i>
-                        <span>Buka Layar Penuh</span>
-                      </button>
+                      {selectedPdf.pdfFileUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const url = base64ToBlobUrl(selectedPdf.pdfFileUrl!);
+                            window.open(url, '_blank');
+                          }}
+                          className="bg-gray-700 hover:bg-gray-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                        >
+                          <i className="fa-solid fa-arrow-up-right-from-square"></i>
+                          <span>Buka Layar Penuh</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => downloadPdfFile(selectedPdf)}
@@ -1816,29 +1976,59 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="w-full h-[650px] sm:h-[800px] relative bg-gray-950">
-                    <object
-                      data={base64ToBlobUrl(selectedPdf.pdfFileUrl)}
-                      type="application/pdf"
-                      className="w-full h-full border-0"
-                    >
-                      <iframe
-                        src={base64ToBlobUrl(selectedPdf.pdfFileUrl)}
-                        title={selectedPdf.title}
+                  <div className="w-full h-[650px] sm:h-[800px] relative bg-gray-950 flex flex-col items-center justify-center">
+                    {cloudLoadingBookId === selectedPdf.id ? (
+                      <div className="p-8 text-center text-white space-y-4">
+                        <div className="w-16 h-16 rounded-full bg-amber-500/20 text-[#FF9F1C] flex items-center justify-center text-2xl animate-spin mx-auto">
+                          <i className="fa-solid fa-spinner"></i>
+                        </div>
+                        <h4 className="text-base font-bold">Mengunduh Dokumen PDF dari Cloud...</h4>
+                        <p className="text-xs text-gray-400 max-w-xs mx-auto">
+                          Sedang mengambil dan menyusun potongan data dokumen dari Cloud Firestore.
+                        </p>
+                      </div>
+                    ) : selectedPdf.pdfFileUrl ? (
+                      <object
+                        data={base64ToBlobUrl(selectedPdf.pdfFileUrl)}
+                        type="application/pdf"
                         className="w-full h-full border-0"
                       >
-                        <div className="p-8 text-center text-white space-y-4">
-                          <p>File PDF berhasil dimuat.</p>
-                          <button
-                            type="button"
-                            onClick={() => downloadPdfFile(selectedPdf)}
-                            className="bg-amber-500 text-black px-4 py-2 rounded-xl font-bold"
-                          >
-                            Unduh File PDF Sekarang
-                          </button>
+                        <iframe
+                          src={base64ToBlobUrl(selectedPdf.pdfFileUrl)}
+                          title={selectedPdf.title}
+                          className="w-full h-full border-0"
+                        >
+                          <div className="p-8 text-center text-white space-y-4">
+                            <p>File PDF berhasil dimuat.</p>
+                            <button
+                              type="button"
+                              onClick={() => downloadPdfFile(selectedPdf)}
+                              className="bg-amber-500 text-black px-4 py-2 rounded-xl font-bold"
+                            >
+                              Unduh File PDF Sekarang
+                            </button>
+                          </div>
+                        </iframe>
+                      </object>
+                    ) : (
+                      <div className="p-8 text-center text-white space-y-4">
+                        <div className="w-16 h-16 rounded-full bg-amber-500/20 text-[#FF9F1C] flex items-center justify-center text-2xl mx-auto">
+                          <i className="fa-solid fa-cloud-arrow-down"></i>
                         </div>
-                      </iframe>
-                    </object>
+                        <h4 className="text-base font-bold">Dokumen PDF Tersimpan di Cloud</h4>
+                        <p className="text-xs text-gray-400 max-w-xs mx-auto">
+                          Dokumen PDF ini diunggah oleh Admin dan siap diakses. Klik tombol di bawah untuk memuat isi dokumen langsung ke layar Anda.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => ensurePdfLoaded(selectedPdf)}
+                          className="bg-[#FF9F1C] hover:bg-amber-600 text-white px-5 py-2.5 rounded-xl font-extrabold text-xs shadow-lg inline-flex items-center gap-2 transition active:scale-95"
+                        >
+                          <i className="fa-solid fa-download"></i>
+                          <span>Muat File PDF Sekarang</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -2127,7 +2317,7 @@ export default function App() {
                 <div className="flex justify-between items-center">
                   <h3 className="font-extrabold text-gray-800 text-lg">Daftar Konten Video Edukasi</h3>
                   <button
-                    onClick={openVideoModal}
+                    onClick={() => openVideoModal()}
                     className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs sm:text-sm shadow"
                   >
                     <i className="fa-solid fa-plus mr-1"></i> Tambah Video Baru
@@ -2866,20 +3056,52 @@ export default function App() {
                 </label>
               </div>
 
+              {cloudUploadProgress !== null && (
+                <div className="p-3 bg-amber-50 rounded-2xl border border-amber-300 space-y-1.5 animate-in fade-in">
+                  <div className="flex items-center justify-between text-xs font-bold text-amber-900">
+                    <span className="flex items-center gap-1.5">
+                      <i className="fa-solid fa-cloud-arrow-up animate-bounce text-[#FF9F1C]"></i>
+                      Sinkronisasi Dokumen ke Cloud Firestore...
+                    </span>
+                    <span>{cloudUploadProgress}%</span>
+                  </div>
+                  <div className="w-full bg-amber-200 h-2.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-[#FF9F1C] h-full rounded-full transition-all duration-300"
+                      style={{ width: `${cloudUploadProgress}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-[10px] text-amber-700">
+                    Menyimpan potongan dokumen ke cloud agar dapat langsung diakses & dibaca oleh semua perangkat pengguna.
+                  </p>
+                </div>
+              )}
+
               <div className="flex gap-2 pt-2 border-t">
                 <button
                   type="button"
+                  disabled={cloudUploadProgress !== null}
                   onClick={() => setShowPdfFormModal(false)}
-                  className="w-1/2 bg-gray-100 text-gray-700 font-bold py-2.5 rounded-xl text-xs"
+                  className="w-1/2 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 font-bold py-2.5 rounded-xl text-xs"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 bg-[#FF9F1C] hover:bg-amber-600 text-white font-bold py-2.5 rounded-xl text-xs shadow flex items-center justify-center gap-1.5"
+                  disabled={cloudUploadProgress !== null}
+                  className="w-1/2 bg-[#FF9F1C] hover:bg-amber-600 disabled:bg-amber-300 text-white font-bold py-2.5 rounded-xl text-xs shadow flex items-center justify-center gap-1.5"
                 >
-                  <i className="fa-solid fa-cloud-arrow-up"></i>
-                  <span>Simpan & Tambahkan ke Resep</span>
+                  {cloudUploadProgress !== null ? (
+                    <>
+                      <i className="fa-solid fa-spinner fa-spin"></i>
+                      <span>Mengunggah ({cloudUploadProgress}%)...</span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-cloud-arrow-up"></i>
+                      <span>Simpan & Sinkronkan ke Semua Pengguna</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -2943,6 +3165,24 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* 7. FULLSCREEN VT / REELS FEED VIEWER */}
+      <ReelsFeedModal
+        isOpen={reelsModalOpen}
+        onClose={() => setReelsModalOpen(false)}
+        videos={reelsCategory === 'gizi' ? giziVideos : kmsVideos}
+        currentIndex={reelsIndex}
+        onNavigate={(idx) => setReelsIndex(idx)}
+        category={reelsCategory}
+        whatsappNumber={whatsappNumber}
+        likedVideos={likedVideos}
+        likeCounts={likeCounts}
+        onToggleLike={toggleLike}
+        savedVideos={savedVideos}
+        onToggleSave={toggleSave}
+        onShare={shareVideo}
+        logoUrl={customLogoUrl}
+      />
 
       {/* TOAST NOTIFICATION */}
       {toastMessage && (
