@@ -167,21 +167,24 @@ export const dbSavePdfBook = async (
   book: any,
   onProgress?: (pct: number) => void
 ) => {
-  if (!db) return;
+  if (!db) {
+    throw new Error('Database Firebase tidak terhubung');
+  }
   try {
-    if (authPromise) await authPromise;
     const bookId = book.id ? String(book.id) : `pdf-${Date.now()}`;
     const parentRef = doc(db, 'artifacts', appId, 'public', 'data', 'pdf_books', bookId);
 
     const pdfDataUrl = book.pdfFileUrl || '';
-    const CHUNK_SIZE = 400000; // ~400KB safe under 1MB Firestore doc limit
-    const chunkCount = pdfDataUrl && pdfDataUrl.length > 0 ? Math.ceil(pdfDataUrl.length / CHUNK_SIZE) : 0;
+    // Store up to 700KB inline for instant zero-latency loading across all devices
+    const CHUNK_SIZE = 400000;
+    const isLarge = pdfDataUrl.length > 700000;
+    const chunkCount = isLarge ? Math.ceil(pdfDataUrl.length / CHUNK_SIZE) : 0;
 
     // Save parent metadata document
     const firestoreData: any = {
       id: bookId,
       title: book.title || 'Buku Resep MP-ASI',
-      ageCategory: book.ageCategory || 'MP-ASI',
+      ageCategory: book.ageCategory || '6 - 8 Bulan',
       fileName: book.fileName || `${book.title}.pdf`,
       fileSize: book.fileSize || 'Dokumen PDF',
       uploadedAt: book.uploadedAt || new Date().toLocaleDateString('id-ID', { dateStyle: 'medium' }),
@@ -192,33 +195,34 @@ export const dbSavePdfBook = async (
       updatedAt: Date.now(),
     };
 
-    // If PDF is small (< 300KB), store inline for fast access
-    if (pdfDataUrl && pdfDataUrl.length <= 300000) {
+    if (pdfDataUrl && !isLarge) {
       firestoreData.pdfFileUrl = pdfDataUrl;
     }
 
+    // Write parent document
     await setDoc(parentRef, firestoreData, { merge: true });
+    if (onProgress) onProgress(isLarge ? 30 : 100);
 
-    // If larger or has data URL, save chunks in subcollection
-    if (pdfDataUrl && chunkCount > 0) {
+    // If larger than 700KB, write chunks in parallel
+    if (isLarge && chunkCount > 0) {
+      const chunkPromises = [];
       for (let i = 0; i < chunkCount; i++) {
         const chunk = pdfDataUrl.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
         const chunkRef = doc(db, 'artifacts', appId, 'public', 'data', 'pdf_books', bookId, 'chunks', String(i));
-        await setDoc(chunkRef, { index: i, data: chunk });
-        if (onProgress) {
-          onProgress(Math.round(((i + 1) / chunkCount) * 100));
-        }
+        chunkPromises.push(setDoc(chunkRef, { index: i, data: chunk }));
       }
+      await Promise.all(chunkPromises);
+      if (onProgress) onProgress(100);
     }
-  } catch (e) {
-    console.warn('Save PDF book error in firestore:', e);
+  } catch (e: any) {
+    console.error('Save PDF book error in firestore:', e);
+    throw new Error(e?.message || 'Gagal menyimpan dokumen ke cloud database');
   }
 };
 
 export const dbFetchPdfChunks = async (bookId: string): Promise<string | null> => {
   if (!db) return null;
   try {
-    if (authPromise) await authPromise;
     const parentRef = doc(db, 'artifacts', appId, 'public', 'data', 'pdf_books', String(bookId));
     const parentSnap = await getDoc(parentRef);
     if (!parentSnap.exists()) return null;
@@ -247,14 +251,13 @@ export const dbFetchPdfChunks = async (bookId: string): Promise<string | null> =
 export const dbDeletePdfBook = async (bookId: string) => {
   if (!db) return;
   try {
-    if (authPromise) await authPromise;
     const strId = String(bookId);
-    // Delete chunks
+    // Delete chunks in parallel
     try {
       const chunksCol = collection(db, 'artifacts', appId, 'public', 'data', 'pdf_books', strId, 'chunks');
       const chunksSnap = await getDocs(chunksCol);
-      for (const d of chunksSnap.docs) {
-        await deleteDoc(d.ref);
+      if (!chunksSnap.empty) {
+        await Promise.all(chunksSnap.docs.map((d) => deleteDoc(d.ref)));
       }
     } catch (err) {
       console.warn('Error deleting PDF chunks:', err);
@@ -263,7 +266,8 @@ export const dbDeletePdfBook = async (bookId: string) => {
     const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'pdf_books', strId);
     await deleteDoc(docRef);
   } catch (e) {
-    console.warn('Delete PDF book error in firestore:', e);
+    console.error('Delete PDF book error in firestore:', e);
+    throw e;
   }
 };
 
@@ -278,41 +282,18 @@ export const subscribeToPdfBooks = (callback: (books: any[]) => void) => {
         snapshot.forEach((docSnap) => {
           list.push({ id: docSnap.id, ...docSnap.data() });
         });
-        // Sort newest first or by uploadedAt
+        // Sort newest first by updatedAt
         list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
         callback(list);
       },
-      (err) => console.warn('Firestore PDF books listener error:', err)
+      (err) => console.error('Firestore PDF books listener error:', err)
     );
   } catch {
     return () => {};
   }
 };
 
-export const initCloudPdfCatalog = async (defaultBooks: any[]) => {
-  if (!db) return;
-  try {
-    if (authPromise) await authPromise;
-    const configDoc = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'pdf_config');
-    const configSnap = await getDoc(configDoc);
-    if (!configSnap.exists() || !configSnap.data()?.catalog_initialized) {
-      // Seed default books
-      for (const book of defaultBooks) {
-        const parentRef = doc(db, 'artifacts', appId, 'public', 'data', 'pdf_books', book.id);
-        await setDoc(
-          parentRef,
-          {
-            ...book,
-            hasCloudPdf: false,
-            chunkCount: 0,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        );
-      }
-      await setDoc(configDoc, { catalog_initialized: true }, { merge: true });
-    }
-  } catch (e) {
-    console.warn('Init catalog error:', e);
-  }
+export const initCloudPdfCatalog = async (_defaultBooks?: any[]) => {
+  // Cloud catalog is now purely dynamic based on admin uploads
+  return;
 };

@@ -128,80 +128,7 @@ const DEFAULT_KMS_VIDEOS: VideoItem[] = [
   },
 ];
 
-const DEFAULT_PDF_BOOKS: PdfBook[] = [
-  {
-    id: 'mpasi-6-8',
-    title: 'Buku Resep MP ASI Usia 6-8 Bulan (Tekstur Saring)',
-    ageCategory: '6 - 8 Bulan',
-    downloadUrl: '#',
-    fileName: 'Buku_Resep_MPASI_6-8_Bulan.pdf',
-    pages: [
-      {
-        recipeTitle: 'Bubur Lumat Puree Ikan Tenggiri & Labu Kuning',
-        ageCategory: '6 - 8 Bulan',
-        image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80',
-        ingredients: [
-          '20g Ikan Tenggiri segar tanpa duri',
-          '30g Labu kuning dikukus',
-          '2 sendok makan beras putih matang',
-          '1 sdt minyak kelapa / butter',
-        ],
-        steps: [
-          'Kukus ikan tenggiri dan labu kuning hingga lembut.',
-          'Lumatkan bersama nasi putih matang menggunakan saringan kawat.',
-          'Tambahkan minyak kelapa sebagai lemak tambahan gizi seimbang.',
-          'Sajikan hangat dalam keadaan segar.',
-        ],
-        nutritionNote: 'Ikan tenggiri kaya akan Omega-3 dan protein hewani murni untuk perkembangan otak balita.',
-      },
-      {
-        recipeTitle: 'Puree Hati Ayam Kaya Zat Besi',
-        ageCategory: '6 - 8 Bulan',
-        image: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80',
-        ingredients: [
-          '25g Hati ayam segar',
-          '1/2 potong wortel lokal',
-          '2 sdm bubur beras halus',
-          '1 sdt santan matang',
-        ],
-        steps: [
-          'Cincang hati ayam lalu tumis sebentar dengan santan.',
-          'Kukus wortel hingga sangat lembut.',
-          'Saring semua bahan hingga mencapai konsistensi bubur kental lembut.',
-          'Siap disajikan 2 kali sehari.',
-        ],
-        nutritionNote: 'Hati ayam sangat efektif mencegah anemia defisiensi besi pada bayi usia 6 bulan keatas.',
-      },
-    ],
-  },
-  {
-    id: 'mpasi-9-11',
-    title: 'Buku Resep MP ASI Usia 9-11 Bulan (Tekstur Cincang)',
-    ageCategory: '9 - 11 Bulan',
-    downloadUrl: '#',
-    fileName: 'Buku_Resep_MPASI_9-11_Bulan.pdf',
-    pages: [
-      {
-        recipeTitle: 'Nasi Tim Cincang Daging Sapi & Bayam',
-        ageCategory: '9 - 11 Bulan',
-        image: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=600&q=80',
-        ingredients: [
-          '30g Daging sapi giling',
-          '1 genggam bayam cincang halus',
-          '3 sdm nasi tim',
-          'Kaldu ayam kampung',
-        ],
-        steps: [
-          'Rebus daging sapi giling dalam kaldu hingga matang dan empuk.',
-          'Masukkan bayam cincang menjelang diangkat.',
-          'Campurkan dengan nasi tim agak kasar untuk melatih ketrampilan mengunyah.',
-          'Sajikan dalam porsi hangat.',
-        ],
-        nutritionNote: 'Melatih kemampuan stimulasi oromotor anak dengan peningkatan tekstur makanan cincang halus.',
-      },
-    ],
-  },
-];
+const DEFAULT_PDF_BOOKS: PdfBook[] = [];
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<'home' | 'gizi' | 'kms' | 'mpasi' | 'admin'>('home');
@@ -281,8 +208,8 @@ export default function App() {
   const [visitorLogs, setVisitorLogs] = useState<VisitorLog[]>([]);
   const [giziVideos, setGiziVideos] = useState<VideoItem[]>(DEFAULT_GIZI_VIDEOS);
   const [kmsVideos, setKmsVideos] = useState<VideoItem[]>(DEFAULT_KMS_VIDEOS);
-  const [pdfBooks, setPdfBooks] = useState<PdfBook[]>(DEFAULT_PDF_BOOKS);
-  const [selectedPdf, setSelectedPdf] = useState<PdfBook>(DEFAULT_PDF_BOOKS[0]);
+  const [pdfBooks, setPdfBooks] = useState<PdfBook[]>([]);
+  const [selectedPdf, setSelectedPdf] = useState<PdfBook | null>(null);
 
   // Video Form
   const [editingVideo, setEditingVideo] = useState<VideoItem>({
@@ -360,30 +287,25 @@ export default function App() {
       setWhatsappNumber(savedWa);
     }
 
-    // 3. Saved PDF Books (Priority: IndexedDB for high capacity, fallback to localStorage)
+    // 3. Clean up legacy default books and read cached storage
     const loadSavedPdfBooks = async () => {
       try {
-        const idbBooks = await getAllPdfBooksFromIndexedDB();
-        if (idbBooks && Array.isArray(idbBooks) && idbBooks.length > 0) {
-          setPdfBooks(idbBooks);
-          setSelectedPdf(idbBooks[0]);
-          return;
-        }
-      } catch (err) {
-        console.warn('Error reading from IndexedDB:', err);
-      }
+        await deletePdfBookFromIndexedDB('mpasi-6-8');
+        await deletePdfBookFromIndexedDB('mpasi-9-11');
+      } catch {}
 
       const savedPdfBooks = localStorage.getItem('si_bunda_pdf_books');
       if (savedPdfBooks) {
         try {
           const parsed = JSON.parse(savedPdfBooks);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setPdfBooks(parsed);
-            setSelectedPdf(parsed[0]);
+          if (Array.isArray(parsed)) {
+            const filtered = parsed.filter((b) => b.id !== 'mpasi-6-8' && b.id !== 'mpasi-9-11');
+            if (filtered.length > 0) {
+              setPdfBooks(filtered);
+              setSelectedPdf(filtered[0]);
+            }
           }
-        } catch {
-          // use default
-        }
+        } catch {}
       }
     };
     loadSavedPdfBooks();
@@ -460,15 +382,12 @@ export default function App() {
     const unsubPdfBooks = subscribeToPdfBooks((cloudBooks) => {
       if (!Array.isArray(cloudBooks)) return;
 
-      if (cloudBooks.length === 0) {
-        // Seed default books once if cloud is clean
-        initCloudPdfCatalog(DEFAULT_PDF_BOOKS);
-        return;
-      }
+      // Filter out any legacy default books if they exist in cloud
+      const cleanBooks = cloudBooks.filter((cb) => cb.id !== 'mpasi-6-8' && cb.id !== 'mpasi-9-11');
 
       setPdfBooks((prev) => {
-        // Authoritative cloud list: any deletions by admin will immediately disappear on all user devices!
-        return cloudBooks.map((cb) => {
+        // Authoritative cloud list: any additions or deletions by admin immediately reflect on all user devices!
+        return cleanBooks.map((cb) => {
           const existing = prev.find((p) => p.id === cb.id);
           return {
             ...cb,
@@ -478,12 +397,26 @@ export default function App() {
       });
 
       setSelectedPdf((current) => {
-        const stillExists = cloudBooks.find((cb) => cb.id === current.id);
-        if (!stillExists && cloudBooks.length > 0) {
-          return cloudBooks[0];
+        if (!current || !cleanBooks.find((cb) => cb.id === current.id)) {
+          return cleanBooks.length > 0 ? cleanBooks[0] : null;
         }
-        return current;
+        const updated = cleanBooks.find((cb) => cb.id === current.id);
+        return {
+          ...updated,
+          pdfFileUrl: current.pdfFileUrl || updated?.pdfFileUrl || '',
+        };
       });
+
+      try {
+        const forStorage = cleanBooks.map((b) => {
+          if (b.pdfFileUrl && b.pdfFileUrl.length > 200000) {
+            const { pdfFileUrl, ...rest } = b;
+            return { ...rest, pdfFileUrl: '' };
+          }
+          return b;
+        });
+        localStorage.setItem('si_bunda_pdf_books', JSON.stringify(forStorage));
+      } catch {}
     });
 
     return () => {
@@ -771,70 +704,72 @@ export default function App() {
       ],
     };
 
-    // 1. Save to high-capacity IndexedDB (handles files up to 100MB+)
-    await savePdfBookToIndexedDB(newBook);
+    try {
+      // 1. Save to high-capacity IndexedDB (handles files up to 100MB+)
+      await savePdfBookToIndexedDB(newBook);
 
-    // 2. Sync to Firebase Firestore with chunks so all users across all devices receive it!
-    setCloudUploadProgress(10);
-    await dbSavePdfBook(newBook, (pct) => setCloudUploadProgress(pct));
-    setCloudUploadProgress(null);
+      // 2. Sync to Firebase Firestore with chunks so all users across all devices receive it!
+      setCloudUploadProgress(10);
+      await dbSavePdfBook(newBook, (pct) => setCloudUploadProgress(pct));
+      setCloudUploadProgress(null);
 
-    // 3. Update React state
-    setPdfBooks((prev) => {
-      const idx = prev.findIndex((b) => b.id === bookId);
-      const updated = idx !== -1 ? prev.map((b) => (b.id === bookId ? newBook : b)) : [newBook, ...prev];
+      // 3. Update React state
+      setPdfBooks((prev) => {
+        const idx = prev.findIndex((b) => b.id === bookId);
+        const updated = idx !== -1 ? prev.map((b) => (b.id === bookId ? newBook : b)) : [newBook, ...prev];
+        return updated;
+      });
 
-      // Safely write metadata to localStorage without crashing on quota
-      try {
-        const forStorage = updated.map((b) => {
-          if (b.pdfFileUrl && b.pdfFileUrl.length > 200000) {
-            const { pdfFileUrl, ...rest } = b;
-            return { ...rest, pdfFileUrl: '' };
-          }
-          return b;
-        });
-        localStorage.setItem('si_bunda_pdf_books', JSON.stringify(forStorage));
-      } catch (err) {
-        console.warn('LocalStorage quota warning (saved in IndexedDB):', err);
+      // 4. Immediately select the newly uploaded PDF and activate the reader
+      setSelectedPdf(newBook);
+      if (newBook.pdfFileUrl) {
+        setPdfViewMode('embed');
       }
-      return updated;
-    });
 
-    // 4. Immediately select the newly uploaded PDF and activate the reader
-    setSelectedPdf(newBook);
-    if (newBook.pdfFileUrl) {
-      setPdfViewMode('embed');
+      setShowPdfFormModal(false);
+
+      // 5. Navigate to MPASI page so user/admin immediately sees the new recipe addition
+      if (editingPdfBook.jumpToMpasiPage !== false) {
+        setCurrentPage('mpasi');
+      }
+
+      showToast(`Buku "${newBook.title}" berhasil diunggah ke Cloud! Semua pengguna dapat langsung mengaksesnya.`);
+    } catch (err: any) {
+      setCloudUploadProgress(null);
+      alert(`Gagal menyimpan dokumen ke cloud: ${err?.message || 'Terjadi kesalahan'}`);
     }
-
-    setShowPdfFormModal(false);
-
-    // 5. Navigate to MPASI page so user/admin immediately sees the new recipe addition
-    if (editingPdfBook.jumpToMpasiPage !== false) {
-      setCurrentPage('mpasi');
-    }
-
-    showToast(`Buku "${newBook.title}" berhasil diunggah ke Cloud! Semua pengguna dapat langsung mengaksesnya.`);
   };
 
   const executeDeletePdf = async () => {
     if (!deletingPdfTarget) return;
     const targetId = deletingPdfTarget;
 
-    await deletePdfBookFromIndexedDB(targetId);
-    await dbDeletePdfBook(targetId);
+    try {
+      await deletePdfBookFromIndexedDB(targetId);
+      await dbDeletePdfBook(targetId);
 
-    setPdfBooks((prev) => {
-      const updated = prev.filter((b) => b.id !== targetId);
-      try {
-        localStorage.setItem('si_bunda_pdf_books', JSON.stringify(updated));
-      } catch {}
-      if (selectedPdf.id === targetId && updated.length > 0) {
-        setSelectedPdf(updated[0]);
-      }
-      return updated;
-    });
-    setDeletingPdfTarget(null);
-    showToast('Buku PDF berhasil dihapus dari Cloud.');
+      setPdfBooks((prev) => {
+        const updated = prev.filter((b) => b.id !== targetId);
+        try {
+          localStorage.setItem('si_bunda_pdf_books', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
+      setSelectedPdf((prev) => {
+        if (prev && prev.id === targetId) {
+          const remaining = pdfBooks.filter((b) => b.id !== targetId);
+          return remaining.length > 0 ? remaining[0] : null;
+        }
+        return prev;
+      });
+
+      setDeletingPdfTarget(null);
+      showToast('Buku PDF berhasil dihapus dari Cloud.');
+    } catch (err: any) {
+      alert(`Gagal menghapus dokumen dari cloud: ${err?.message || 'Terjadi kesalahan'}`);
+      setDeletingPdfTarget(null);
+    }
   };
 
   // Helper to ensure PDF data URL is loaded (fetches chunks from Firestore on demand if needed)
@@ -850,7 +785,7 @@ export default function App() {
         setPdfBooks((prev) =>
           prev.map((b) => (b.id === book.id ? { ...b, pdfFileUrl: cached.pdfFileUrl } : b))
         );
-        setSelectedPdf((prev) => (prev.id === book.id ? { ...prev, pdfFileUrl: cached.pdfFileUrl } : prev));
+        setSelectedPdf((prev) => (prev && prev.id === book.id ? { ...prev, pdfFileUrl: cached.pdfFileUrl } : prev));
         return cached.pdfFileUrl;
       }
     } catch {}
@@ -865,7 +800,7 @@ export default function App() {
         setPdfBooks((prev) =>
           prev.map((b) => (b.id === book.id ? { ...b, pdfFileUrl: dataUrl } : b))
         );
-        setSelectedPdf((prev) => (prev.id === book.id ? { ...prev, pdfFileUrl: dataUrl } : prev));
+        setSelectedPdf((prev) => (prev && prev.id === book.id ? { ...prev, pdfFileUrl: dataUrl } : prev));
         showToast('Dokumen PDF berhasil dimuat dari Cloud!');
         return dataUrl;
       }
@@ -879,7 +814,8 @@ export default function App() {
   };
 
   // Download PDF File Helper
-  const downloadPdfFile = async (book: PdfBook) => {
+  const downloadPdfFile = async (book: PdfBook | null) => {
+    if (!book) return;
     let fileUrl = book.pdfFileUrl;
     if (!fileUrl || fileUrl.length < 100) {
       fileUrl = (await ensurePdfLoaded(book)) || undefined;
@@ -900,7 +836,7 @@ export default function App() {
     }
   };
 
-  // Interactive VT / Reels helpers
+  // Interactive Reels helpers
   const toggleLike = (videoId: string | number) => {
     setLikedVideos((prev) => {
       const newState = !prev[videoId];
@@ -921,7 +857,7 @@ export default function App() {
       });
 
       if (newState) {
-        showToast('❤️ Disukai! Ditambahkan ke interaksi VT Bunda.');
+        showToast('❤️ Disukai! Ditambahkan ke interaksi video Bunda.');
       }
       return updated;
     });
@@ -946,7 +882,7 @@ export default function App() {
       navigator.share({ title: video.title, text: video.description, url: shareUrl }).catch(() => {});
     } else {
       navigator.clipboard.writeText(shareText);
-      showToast('🔗 Link video VT berhasil disalin ke clipboard!');
+      showToast('🔗 Link video berhasil disalin ke clipboard!');
     }
   };
 
@@ -1465,7 +1401,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* VT / Reels Portrait Video Gallery (9:16) */}
+            {/* Reels Portrait Video Gallery (9:16) */}
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-pink-50 via-white to-pink-50/40 p-4 rounded-3xl border border-pink-200/80 shadow-xs">
                 <div className="flex items-center gap-3">
@@ -1474,20 +1410,20 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-base sm:text-lg font-black text-gray-800 flex items-center gap-2">
-                      <span>Galeri VT Gizi Balita</span>
+                      <span>Galeri Video Gizi Balita</span>
                       <span className="text-[10px] bg-[#FF7B9C]/15 text-[#FF7B9C] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
                         Reels Potrait (9:16)
                       </span>
                     </h3>
                     <p className="text-xs text-gray-500">
-                      Tampilan video potrait vertikal modern ala Reels & TikTok dengan interaksi like, konsultasi gizi & simpan
+                      Tampilan video potrait vertikal modern ala Reels dengan interaksi like, konsultasi gizi & simpan
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-500 font-bold bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-2xs">
-                    {giziVideos.length} VT Tersedia
+                    {giziVideos.length} Video Tersedia
                   </span>
                   <button
                     type="button"
@@ -1504,7 +1440,7 @@ export default function App() {
                       className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow transition"
                     >
                       <i className="fa-solid fa-plus"></i>
-                      <span>Tambah VT</span>
+                      <span>Tambah Video</span>
                     </button>
                   )}
                 </div>
@@ -1563,7 +1499,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* VT / Reels Portrait Video Gallery (9:16) */}
+            {/* Reels Portrait Video Gallery (9:16) */}
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-teal-50 via-white to-teal-50/40 p-4 rounded-3xl border border-teal-200/80 shadow-xs">
                 <div className="flex items-center gap-3">
@@ -1572,20 +1508,20 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-base sm:text-lg font-black text-gray-800 flex items-center gap-2">
-                      <span>Galeri VT Panduan KMS</span>
+                      <span>Galeri Video Panduan KMS</span>
                       <span className="text-[10px] bg-[#2EC4B6]/15 text-[#2EC4B6] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
                         Reels Potrait (9:16)
                       </span>
                     </h3>
                     <p className="text-xs text-gray-500">
-                      Tutorial membaca grafik & pemantauan KMS dalam format video vertikal ala Reels & TikTok
+                      Tutorial membaca grafik & pemantauan KMS dalam format video vertikal ala Reels
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-500 font-bold bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-2xs">
-                    {kmsVideos.length} VT Tersedia
+                    {kmsVideos.length} Video Tersedia
                   </span>
                   <button
                     type="button"
@@ -1602,7 +1538,7 @@ export default function App() {
                       className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow transition"
                     >
                       <i className="fa-solid fa-plus"></i>
-                      <span>Tambah VT</span>
+                      <span>Tambah Video</span>
                     </button>
                   )}
                 </div>
@@ -1702,8 +1638,20 @@ export default function App() {
 
               {/* Grid of Books & Uploaded PDFs */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {pdfBooks.length === 0 && !isAdmin && (
+                  <div className="col-span-full bg-white rounded-3xl p-8 sm:p-12 border border-dashed border-amber-200 text-center space-y-3 shadow-2xs">
+                    <div className="w-16 h-16 rounded-full bg-amber-50 text-amber-500 flex items-center justify-center mx-auto text-3xl">
+                      <i className="fa-solid fa-book-open"></i>
+                    </div>
+                    <h4 className="font-extrabold text-gray-800 text-base sm:text-lg">Belum Ada Buku Resep MP-ASI</h4>
+                    <p className="text-xs sm:text-sm text-gray-500 max-w-md mx-auto">
+                      Buku dan panduan resep MP-ASI bergizi yang diunggah oleh Ahli Gizi / Admin akan otomatis muncul di sini dan dapat diakses oleh semua Bunda.
+                    </p>
+                  </div>
+                )}
+
                 {pdfBooks.map((book) => {
-                  const isSelected = selectedPdf.id === book.id;
+                  const isSelected = selectedPdf?.id === book.id;
                   return (
                     <div
                       key={book.id}
@@ -1836,32 +1784,35 @@ export default function App() {
             </div>
 
             {/* Quick Switcher Tabs */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar pt-2">
-              <span className="text-xs font-bold text-gray-400 shrink-0">Pilihan Cepat:</span>
-              {pdfBooks.map((book) => (
-                <button
-                  key={book.id}
-                  onClick={() => {
-                    setSelectedPdf(book);
-                    setPdfZoom(100);
-                    if (book.pdfFileUrl) {
-                      setPdfViewMode('embed');
-                    }
-                  }}
-                  className={`px-3 py-1.5 rounded-xl text-xs whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                    selectedPdf.id === book.id
-                      ? 'bg-[#FF9F1C] text-white font-extrabold shadow-sm'
-                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-amber-50'
-                  }`}
-                >
-                  <i className="fa-solid fa-file-pdf"></i>
-                  <span>{book.title}</span>
-                </button>
-              ))}
-            </div>
+            {pdfBooks.length > 0 && selectedPdf && (
+              <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar pt-2">
+                <span className="text-xs font-bold text-gray-400 shrink-0">Pilihan Cepat:</span>
+                {pdfBooks.map((book) => (
+                  <button
+                    key={book.id}
+                    onClick={() => {
+                      setSelectedPdf(book);
+                      setPdfZoom(100);
+                      if (book.pdfFileUrl) {
+                        setPdfViewMode('embed');
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                      selectedPdf.id === book.id
+                        ? 'bg-[#FF9F1C] text-white font-extrabold shadow-sm'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-amber-50'
+                    }`}
+                  >
+                    <i className="fa-solid fa-file-pdf"></i>
+                    <span>{book.title}</span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* 2. SCRIBD & PDF DOCUMENT VIEWER */}
-            <div id="mpasi-reader" className="bg-gray-800 rounded-3xl shadow-xl overflow-hidden border border-gray-700">
+            {selectedPdf && (
+              <div id="mpasi-reader" className="bg-gray-800 rounded-3xl shadow-xl overflow-hidden border border-gray-700">
               <div className="bg-gray-900 text-white px-4 py-3 border-b border-gray-800 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <i className="fa-solid fa-book-open text-[#FF9F1C]"></i>
@@ -2099,6 +2050,7 @@ export default function App() {
                 </div>
               )}
             </div>
+            )}
           </section>
         )}
 
@@ -2387,80 +2339,92 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {pdfBooks.map((book) => (
-                    <div
-                      key={book.id}
-                      className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between space-y-4 hover:border-amber-300 transition"
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase">
-                            {book.ageCategory || 'MP-ASI'}
-                          </span>
-                          {book.pdfFileUrl ? (
-                            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                              <i className="fa-solid fa-file-circle-check text-emerald-600"></i> File PDF Aktif
-                            </span>
-                          ) : (
-                            <span className="bg-gray-100 text-gray-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                              Resep Digital
-                            </span>
-                          )}
-                        </div>
-
-                        <h4 className="font-bold text-gray-800 text-base">{book.title}</h4>
-                        <p className="text-xs text-gray-500 line-clamp-2">
-                          {book.fileName ? `Nama File: ${book.fileName}` : 'Buku digital interaktif dengan resep panduan ahli gizi.'}
-                        </p>
-                      </div>
-
-                      <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedPdf(book);
-                              if (book.pdfFileUrl) {
-                                setPdfViewMode('embed');
-                              }
-                              changePage('mpasi');
-                            }}
-                            className="text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition border border-amber-200"
-                            title="Buka buku ini di Halaman Resep MP-ASI"
-                          >
-                            <i className="fa-solid fa-book-open"></i> Buka di Halaman Resep
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => downloadPdfFile(book)}
-                            className="text-xs font-bold text-gray-500 hover:text-amber-700 p-1.5 rounded-lg hover:bg-gray-100 transition"
-                            title="Uji Unduh File PDF"
-                          >
-                            <i className="fa-solid fa-download"></i>
-                          </button>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => openPdfModal(book)}
-                            className="text-blue-600 hover:underline text-xs font-bold"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeletingPdfTarget(book.id)}
-                            className="text-red-500 hover:underline text-xs font-bold"
-                          >
-                            Hapus
-                          </button>
-                        </div>
-                      </div>
+                {pdfBooks.length === 0 ? (
+                  <div className="bg-white p-8 sm:p-12 rounded-3xl border border-dashed border-gray-300 text-center space-y-3">
+                    <div className="w-14 h-14 rounded-full bg-amber-50 text-[#FF9F1C] flex items-center justify-center mx-auto text-2xl">
+                      <i className="fa-solid fa-folder-open"></i>
                     </div>
-                  ))}
-                </div>
+                    <h4 className="font-extrabold text-gray-800 text-base">Belum Ada Buku PDF Resep yang Diunggah</h4>
+                    <p className="text-xs text-gray-500 max-w-sm mx-auto">
+                      Silakan klik tombol &quot;Unggah / Tambah Buku PDF Baru&quot; di atas untuk menambahkan dokumen PDF resep MP-ASI pertama ke Cloud.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {pdfBooks.map((book) => (
+                      <div
+                        key={book.id}
+                        className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between space-y-4 hover:border-amber-300 transition"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase">
+                              {book.ageCategory || 'MP-ASI'}
+                            </span>
+                            {book.pdfFileUrl || book.hasCloudPdf ? (
+                              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <i className="fa-solid fa-file-circle-check text-emerald-600"></i> File PDF Cloud
+                              </span>
+                            ) : (
+                              <span className="bg-gray-100 text-gray-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                Resep Digital
+                              </span>
+                            )}
+                          </div>
+
+                          <h4 className="font-bold text-gray-800 text-base">{book.title}</h4>
+                          <p className="text-xs text-gray-500 line-clamp-2">
+                            {book.fileName ? `Nama File: ${book.fileName}` : 'Buku digital interaktif dengan resep panduan ahli gizi.'}
+                          </p>
+                        </div>
+
+                        <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedPdf(book);
+                                if (book.pdfFileUrl) {
+                                  setPdfViewMode('embed');
+                                }
+                                changePage('mpasi');
+                              }}
+                              className="text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition border border-amber-200"
+                              title="Buka buku ini di Halaman Resep MP-ASI"
+                            >
+                              <i className="fa-solid fa-book-open"></i> Buka di Halaman Resep
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => downloadPdfFile(book)}
+                              className="text-xs font-bold text-gray-500 hover:text-amber-700 p-1.5 rounded-lg hover:bg-gray-100 transition"
+                              title="Uji Unduh File PDF"
+                            >
+                              <i className="fa-solid fa-download"></i>
+                            </button>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => openPdfModal(book)}
+                              className="text-blue-600 hover:underline text-xs font-bold"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingPdfTarget(book.id)}
+                              className="text-red-500 hover:underline text-xs font-bold"
+                            >
+                              Hapus
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -3166,7 +3130,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 7. FULLSCREEN VT / REELS FEED VIEWER */}
+      {/* 7. FULLSCREEN REELS FEED VIEWER */}
       <ReelsFeedModal
         isOpen={reelsModalOpen}
         onClose={() => setReelsModalOpen(false)}

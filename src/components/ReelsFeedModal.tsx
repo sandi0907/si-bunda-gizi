@@ -149,7 +149,7 @@ export const ReelsFeedModal: React.FC<ReelsFeedModalProps> = ({
           {/* WhatsApp Tanya Ahli Gizi */}
           <a
             href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
-              `Halo Ahli Gizi Si Bunda, saya sedang menonton VT Reels: "${currentVideo.title}" dan ingin berkonsultasi.`
+              `Halo Ahli Gizi Si Bunda, saya sedang menonton video edukasi: "${currentVideo.title}" dan ingin berkonsultasi.`
             )}`}
             target="_blank"
             rel="noopener noreferrer"

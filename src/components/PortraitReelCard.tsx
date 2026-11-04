@@ -74,7 +74,7 @@ export const PortraitReelCard: React.FC<PortraitReelCardProps> = ({
           <div className="absolute top-3 inset-x-3 z-30 flex items-center justify-between pointer-events-auto">
             <span className="bg-black/75 backdrop-blur-md text-white text-[10px] font-extrabold px-3 py-1 rounded-full border border-white/20 flex items-center gap-1.5 shadow-md">
               <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
-              <span>Memutar VT</span>
+              <span>Memutar Video</span>
             </span>
 
             <button
@@ -83,12 +83,12 @@ export const PortraitReelCard: React.FC<PortraitReelCardProps> = ({
               className="bg-black/85 hover:bg-stone-900 text-white text-xs px-3.5 py-1.5 rounded-full backdrop-blur-md font-bold flex items-center gap-1.5 shadow-lg border border-white/20 transition active:scale-95"
             >
               <i className="fa-solid fa-xmark text-sm"></i>
-              <span>Tutup VT</span>
+              <span>Tutup Video</span>
             </button>
           </div>
         </div>
       ) : (
-        /* 2. VT / REELS PORTRAIT PREVIEW STATE */
+        /* 2. REELS PORTRAIT PREVIEW STATE */
         <div className="relative w-full h-full flex flex-col justify-between">
           {/* Vertical Thumbnail with Ken Burns hover effect */}
           <img
@@ -107,7 +107,7 @@ export const PortraitReelCard: React.FC<PortraitReelCardProps> = ({
                 className={`${accentBgClass} text-white text-[10px] font-black uppercase px-2.5 py-1 rounded-full shadow-md flex items-center gap-1 tracking-wide`}
               >
                 <i className="fa-solid fa-play text-[8px]"></i>
-                <span>VT {category === 'gizi' ? 'Gizi' : 'KMS'}</span>
+                <span>Video {category === 'gizi' ? 'Gizi' : 'KMS'}</span>
               </span>
               <span className="bg-black/50 backdrop-blur-md text-[10px] font-bold px-2 py-0.5 rounded-full text-stone-300 border border-white/10">
                 {video.duration || '03:45'}
@@ -124,7 +124,7 @@ export const PortraitReelCard: React.FC<PortraitReelCardProps> = ({
                     onEdit();
                   }}
                   className="w-6 h-6 rounded-lg bg-blue-500/80 hover:bg-blue-600 text-white text-[10px] flex items-center justify-center transition"
-                  title="Edit VT ini"
+                  title="Edit video ini"
                 >
                   <i className="fa-solid fa-pen"></i>
                 </button>
@@ -135,7 +135,7 @@ export const PortraitReelCard: React.FC<PortraitReelCardProps> = ({
                     onDelete();
                   }}
                   className="w-6 h-6 rounded-lg bg-red-500/80 hover:bg-red-600 text-white text-[10px] flex items-center justify-center transition"
-                  title="Hapus VT ini"
+                  title="Hapus video ini"
                 >
                   <i className="fa-solid fa-trash"></i>
                 </button>
@@ -166,11 +166,11 @@ export const PortraitReelCard: React.FC<PortraitReelCardProps> = ({
               </div>
             </div>
             <span className="mt-2.5 text-[11px] font-extrabold text-white/90 bg-black/40 backdrop-blur-sm px-3 py-0.5 rounded-full border border-white/10 tracking-wide">
-              Putar Video VT
+              Putar Video
             </span>
           </div>
 
-          {/* RIGHT-SIDE TIKTOK / REELS VERTICAL ACTION BAR */}
+          {/* RIGHT-SIDE REELS VERTICAL ACTION BAR */}
           <div className="absolute right-2.5 bottom-24 z-20 flex flex-col items-center gap-3.5 text-white pointer-events-auto">
             {/* Heart / Suka */}
             <button
@@ -180,7 +180,7 @@ export const PortraitReelCard: React.FC<PortraitReelCardProps> = ({
                 onToggleLike();
               }}
               className="flex flex-col items-center group/btn active:scale-125 transition-transform"
-              title={isLiked ? 'Batal Suka' : 'Suka VT ini'}
+              title={isLiked ? 'Batal Suka' : 'Suka video ini'}
             >
               <div
                 className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md border border-white/10 transition-all ${
@@ -203,7 +203,7 @@ export const PortraitReelCard: React.FC<PortraitReelCardProps> = ({
             {/* Tanya Ahli Gizi / Konsultasi WA */}
             <a
               href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
-                `Halo Ahli Gizi Si Bunda, saya ingin berkonsultasi mengenai video edukasi VT: "${video.title}"`
+                `Halo Ahli Gizi Si Bunda, saya ingin berkonsultasi mengenai video edukasi: "${video.title}"`
               )}`}
               target="_blank"
               rel="noopener noreferrer"
@@ -227,7 +227,7 @@ export const PortraitReelCard: React.FC<PortraitReelCardProps> = ({
                 onShare();
               }}
               className="flex flex-col items-center group/btn active:scale-125 transition-transform"
-              title="Bagikan VT ini"
+              title="Bagikan video ini"
             >
               <div className="w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center backdrop-blur-md border border-white/10 transition shadow-md">
                 <i className="fa-solid fa-share text-base"></i>
@@ -245,7 +245,7 @@ export const PortraitReelCard: React.FC<PortraitReelCardProps> = ({
                 onToggleSave();
               }}
               className="flex flex-col items-center group/btn active:scale-125 transition-transform"
-              title={isSaved ? 'Hapus Simpanan' : 'Simpan VT'}
+              title={isSaved ? 'Hapus Simpanan' : 'Simpan Video'}
             >
               <div
                 className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md border border-white/10 transition ${
