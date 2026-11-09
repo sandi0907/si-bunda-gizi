@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   dbAddVisitorLog,
   dbSaveWebhook,
+  dbSaveSettings,
+  subscribeToSettings,
   dbSaveVideo,
   dbDeleteVideo,
   dbSavePdfBook,
@@ -22,8 +24,12 @@ import {
   base64ToBlobUrl,
 } from './utils/pdfStorage';
 import { PortraitReelCard } from './components/PortraitReelCard';
+import { PdfCanvasViewer } from './components/PdfCanvasViewer';
 
 const DEFAULT_LOGO_URL = '/assets/aistudio/logo_eduzi_2507d203.png';
+const DEFAULT_WA_NUMBER = '+62 852-6877-6637';
+const DEFAULT_HEADER_GIF = 'https://media.giphy.com/media/26AHONQ79FdWZhAI0/giphy.gif';
+const FALLBACK_HEADER_BANNER = '/src/assets/images/si_bunda_header_1791350849800.jpg';
 
 interface UserData {
   nama: string;
@@ -145,16 +151,12 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
 
   const [activeVideoId, setActiveVideoId] = useState<string | number | null>(null);
-  const [whatsappNumber, setWhatsappNumber] = useState('6281234567890');
+  const [whatsappNumber, setWhatsappNumber] = useState<string>(DEFAULT_WA_NUMBER);
 
   // Custom Logo and Header GIF
   const [customLogoUrl, setCustomLogoUrl] = useState<string>(DEFAULT_LOGO_URL);
-  const [customHeaderGif, setCustomHeaderGif] = useState<string>(
-    'https://6ac6859d70fa33769150f041.imgix.net/Biru%20Hijau%20dan%20Merah%20Muda%20Belajar%20Bersama%20Anak-Anak%20Youtube%20Intro-2.gif?ixembed=1791395370108&auto=format,compress'
-  );
+  const [customHeaderGif, setCustomHeaderGif] = useState<string>(DEFAULT_HEADER_GIF);
 
-  const [pdfZoom, setPdfZoom] = useState(100);
-  const [pdfViewMode, setPdfViewMode] = useState<'scribd' | 'embed'>('scribd');
   const [searchLog, setSearchLog] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const [deletingVideoTarget, setDeletingVideoTarget] = useState<{ id: string | number; category: 'gizi' | 'kms' } | null>(null);
@@ -241,6 +243,7 @@ export default function App() {
   });
 
   const logoFileInputRef = useRef<HTMLInputElement>(null);
+  const headerGifFileInputRef = useRef<HTMLInputElement>(null);
   const pdfFileInputRef = useRef<HTMLInputElement>(null);
 
   const showToast = (msg: string) => {
@@ -277,13 +280,18 @@ export default function App() {
     }
 
     const savedGif = localStorage.getItem('si_bunda_header_gif');
-    if (savedGif) {
+    if (savedGif && !savedGif.includes('imgix.net')) {
       setCustomHeaderGif(savedGif);
+    } else {
+      setCustomHeaderGif(DEFAULT_HEADER_GIF);
     }
 
     const savedWa = localStorage.getItem('si_bunda_wa');
-    if (savedWa) {
+    if (savedWa && savedWa !== '6281234567890') {
       setWhatsappNumber(savedWa);
+    } else {
+      setWhatsappNumber(DEFAULT_WA_NUMBER);
+      localStorage.setItem('si_bunda_wa', DEFAULT_WA_NUMBER);
     }
 
     // 3. Clean up legacy default books and read cached storage
@@ -362,10 +370,22 @@ export default function App() {
       }
     });
 
-    const unsubWebhook = subscribeToWebhookSettings((url) => {
-      if (url) {
-        setGoogleSheetWebhook(url);
-        localStorage.setItem('si_bunda_webhook', url);
+    const unsubSettings = subscribeToSettings((settings) => {
+      if (settings.googleSheetWebhook) {
+        setGoogleSheetWebhook(settings.googleSheetWebhook);
+        localStorage.setItem('si_bunda_webhook', settings.googleSheetWebhook);
+      }
+      if (settings.whatsappNumber) {
+        setWhatsappNumber(settings.whatsappNumber);
+        localStorage.setItem('si_bunda_wa', settings.whatsappNumber);
+      }
+      if (settings.headerGifUrl && !settings.headerGifUrl.includes('imgix.net')) {
+        setCustomHeaderGif(settings.headerGifUrl);
+        localStorage.setItem('si_bunda_header_gif', settings.headerGifUrl);
+      }
+      if (settings.customLogoUrl) {
+        setCustomLogoUrl(settings.customLogoUrl);
+        localStorage.setItem('si_bunda_custom_logo', settings.customLogoUrl);
       }
     });
 
@@ -420,11 +440,23 @@ export default function App() {
 
     return () => {
       unsubLogs();
-      unsubWebhook();
+      unsubSettings();
       unsubVideos();
       unsubPdfBooks();
     };
   }, []);
+
+  // Auto-fetch chunks when a PDF book without full data in memory is selected
+  useEffect(() => {
+    if (
+      selectedPdf &&
+      (!selectedPdf.pdfFileUrl || selectedPdf.pdfFileUrl.length < 100) &&
+      selectedPdf.hasCloudPdf &&
+      cloudLoadingBookId !== selectedPdf.id
+    ) {
+      ensurePdfLoaded(selectedPdf);
+    }
+  }, [selectedPdf?.id, selectedPdf?.pdfFileUrl]);
 
   // Filtered visitor logs
   const filteredLogs = useMemo(() => {
@@ -538,10 +570,47 @@ export default function App() {
   };
 
   // Header GIF Management
-  const handleSaveHeaderGif = (newGif: string) => {
-    setCustomHeaderGif(newGif);
-    localStorage.setItem('si_bunda_header_gif', newGif);
-    showToast('Header GIF berhasil diperbarui!');
+  const handleSaveHeaderGif = async (newGif: string) => {
+    const trimmed = newGif.trim();
+    if (!trimmed) return;
+    setCustomHeaderGif(trimmed);
+    localStorage.setItem('si_bunda_header_gif', trimmed);
+    await dbSaveSettings({ headerGifUrl: trimmed });
+    showToast('Header GIF berhasil diperbarui & disinkronkan ke seluruh pengguna!');
+  };
+
+  const handleHeaderGifUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('File harus berupa animasi GIF atau gambar!');
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) {
+      alert('Ukuran file maksimal 8 MB!');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64 = event.target?.result as string;
+      if (base64) {
+        setCustomHeaderGif(base64);
+        localStorage.setItem('si_bunda_header_gif', base64);
+        await dbSaveSettings({ headerGifUrl: base64 });
+        showToast('Animasi GIF header berhasil diunggah & aktif!');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleResetHeaderGif = async () => {
+    setCustomHeaderGif(DEFAULT_HEADER_GIF);
+    localStorage.removeItem('si_bunda_header_gif');
+    await dbSaveSettings({ headerGifUrl: DEFAULT_HEADER_GIF });
+    showToast('Header GIF dikembalikan ke animasi ceria standar.');
   };
 
   const editHeaderGif = () => {
@@ -549,6 +618,16 @@ export default function App() {
     if (newGif !== null && newGif.trim()) {
       handleSaveHeaderGif(newGif.trim());
     }
+  };
+
+  // WhatsApp Contact Management
+  const handleSaveWhatsAppNumber = async (num: string) => {
+    const trimmed = num.trim();
+    if (!trimmed) return;
+    setWhatsappNumber(trimmed);
+    localStorage.setItem('si_bunda_wa', trimmed);
+    await dbSaveSettings({ whatsappNumber: trimmed });
+    showToast(`Nomor WhatsApp berhasil diperbarui ke "${trimmed}" & aktif untuk seluruh pengguna!`);
   };
 
   // Video Management
@@ -721,9 +800,6 @@ export default function App() {
 
       // 4. Immediately select the newly uploaded PDF and activate the reader
       setSelectedPdf(newBook);
-      if (newBook.pdfFileUrl) {
-        setPdfViewMode('embed');
-      }
 
       setShowPdfFormModal(false);
 
@@ -773,7 +849,7 @@ export default function App() {
 
   // Helper to ensure PDF data URL is loaded (fetches chunks from Firestore on demand if needed)
   const ensurePdfLoaded = async (book: PdfBook): Promise<string | null> => {
-    if (book.pdfFileUrl && book.pdfFileUrl.length > 100) {
+    if (book.pdfFileUrl && book.pdfFileUrl.length > 100 && !book.pdfFileUrl.startsWith('#')) {
       return book.pdfFileUrl;
     }
 
@@ -1186,10 +1262,9 @@ export default function App() {
             className="w-full h-full object-cover"
             loading="lazy"
             alt="Si Bunda Banner Animasi"
-            src={customHeaderGif}
+            src={customHeaderGif || DEFAULT_HEADER_GIF}
             onError={(e) => {
-              (e.target as HTMLImageElement).src =
-                'https://6ac6859d70fa33769150f041.imgix.net/Biru%20Hijau%20dan%20Merah%20Muda%20Belajar%20Bersama%20Anak-Anak%20Youtube%20Intro-2.gif?ixembed=1791395370108&auto=format,compress';
+              (e.target as HTMLImageElement).src = FALLBACK_HEADER_BANNER;
             }}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-4 sm:p-8">
@@ -1360,17 +1435,17 @@ export default function App() {
                 </p>
               </div>
               <a
-                href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
+                href={`https://wa.me/${whatsappNumber.replace(/\D/g, '').replace(/^0/, '62')}?text=${encodeURIComponent(
                   `Halo Ahli Gizi Si Bunda, saya Ibu ${userData.nama || ''} dari Kecamatan ${
                     userData.kecamatan || ''
                   } ingin berkonsultasi mengenai gizi balita saya.`
                 )}`}
                 target="_blank"
                 rel="noreferrer"
-                className="bg-white text-emerald-600 hover:bg-emerald-50 px-6 py-3.5 rounded-2xl font-black text-sm shadow-md hover:shadow-xl transition-all flex items-center gap-2 whitespace-nowrap group"
+                className="bg-white text-emerald-700 hover:bg-emerald-50 px-6 py-3.5 rounded-2xl font-black text-sm shadow-md hover:shadow-xl transition-all flex items-center gap-3 whitespace-nowrap group shrink-0"
               >
-                <i className="fa-brands fa-whatsapp text-2xl text-emerald-500 group-hover:scale-110 transition-transform"></i>
-                <span>Hubungi via WhatsApp</span>
+                <i className="fa-brands fa-whatsapp text-2xl sm:text-3xl text-emerald-500 group-hover:scale-110 transition-transform"></i>
+                <span className="font-extrabold text-sm sm:text-base text-emerald-800">Hubungi via WhatsApp</span>
               </a>
             </div>
           </section>
@@ -1666,7 +1741,6 @@ export default function App() {
                           disabled={cloudLoadingBookId === book.id}
                           onClick={async () => {
                             setSelectedPdf(book);
-                            setPdfViewMode('embed');
                             if (!book.pdfFileUrl || book.pdfFileUrl.length < 100) {
                               await ensurePdfLoaded(book);
                             }
@@ -1755,11 +1829,14 @@ export default function App() {
                 {pdfBooks.map((book) => (
                   <button
                     key={book.id}
-                    onClick={() => {
+                    onClick={async () => {
                       setSelectedPdf(book);
-                      setPdfZoom(100);
-                      if (book.pdfFileUrl) {
-                        setPdfViewMode('embed');
+                      if (!book.pdfFileUrl || book.pdfFileUrl.length < 100) {
+                        await ensurePdfLoaded(book);
+                      }
+                      const readerElem = document.getElementById('mpasi-reader');
+                      if (readerElem) {
+                        readerElem.scrollIntoView({ behavior: 'smooth' });
                       }
                     }}
                     className={`px-3 py-1.5 rounded-xl text-xs whitespace-nowrap transition-all flex items-center gap-1.5 ${
@@ -1775,246 +1852,18 @@ export default function App() {
               </div>
             )}
 
-            {/* 2. SCRIBD & PDF DOCUMENT VIEWER */}
+            {/* 2. UNIVERSAL CANVAS-BASED PDF DOCUMENT VIEWER */}
             {selectedPdf && (
-              <div id="mpasi-reader" className="bg-gray-800 rounded-3xl shadow-xl overflow-hidden border border-gray-700">
-              <div className="bg-gray-900 text-white px-4 py-3 border-b border-gray-800 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <i className="fa-solid fa-book-open text-[#FF9F1C]"></i>
-                  <span className="font-bold text-xs sm:text-sm truncate max-w-[200px] sm:max-w-md">
-                    {selectedPdf.title}
-                  </span>
-                  {selectedPdf.fileName && (
-                    <span className="text-[10px] bg-gray-800 text-gray-400 px-2 py-0.5 rounded font-mono hidden md:inline">
-                      {selectedPdf.fileName}
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2 sm:gap-3 text-xs">
-                  {/* View mode toggle if PDF file exists */}
-                  {selectedPdf.pdfFileUrl && (
-                    <div className="flex bg-gray-800 rounded-xl p-0.5 border border-gray-700">
-                      <button
-                        type="button"
-                        onClick={() => setPdfViewMode('embed')}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${
-                          pdfViewMode === 'embed' ? 'bg-[#FF9F1C] text-white shadow' : 'text-gray-400 hover:text-white'
-                        }`}
-                      >
-                        File PDF
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPdfViewMode('scribd')}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${
-                          pdfViewMode === 'scribd' ? 'bg-[#FF9F1C] text-white shadow' : 'text-gray-400 hover:text-white'
-                        }`}
-                      >
-                        Scribd
-                      </button>
-                    </div>
-                  )}
-
-                  {pdfViewMode === 'scribd' && (
-                    <div className="flex items-center bg-gray-800 rounded-xl px-2 py-1 border border-gray-700">
-                      <button
-                        type="button"
-                        onClick={() => setPdfZoom((prev) => (prev > 70 ? prev - 10 : prev))}
-                        className="hover:text-[#FF9F1C] px-1"
-                        title="Zoom Out"
-                      >
-                        <i className="fa-solid fa-minus"></i>
-                      </button>
-                      <span className="px-2 font-mono text-gray-300">{pdfZoom}%</span>
-                      <button
-                        type="button"
-                        onClick={() => setPdfZoom((prev) => (prev < 150 ? prev + 10 : prev))}
-                        className="hover:text-[#FF9F1C] px-1"
-                        title="Zoom In"
-                      >
-                        <i className="fa-solid fa-plus"></i>
-                      </button>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => downloadPdfFile(selectedPdf)}
-                    className="bg-[#FF9F1C] hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 transition"
-                    title="Unduh File PDF Resep"
-                  >
-                    <i className="fa-solid fa-download"></i>
-                    <span className="hidden sm:inline">Unduh PDF</span>
-                  </button>
-                </div>
+              <div id="mpasi-reader" className="mt-4">
+                <PdfCanvasViewer
+                  pdfDataUrl={selectedPdf.pdfFileUrl || ''}
+                  fileName={selectedPdf.fileName}
+                  title={selectedPdf.title}
+                  onDownload={() => downloadPdfFile(selectedPdf)}
+                  onReload={() => ensurePdfLoaded(selectedPdf)}
+                  isLoadingCloud={cloudLoadingBookId === selectedPdf.id}
+                />
               </div>
-
-              {/* View Mode: Embedded PDF Viewer */}
-              {pdfViewMode === 'embed' && (selectedPdf.pdfFileUrl || selectedPdf.hasCloudPdf) ? (
-                <div className="w-full bg-gray-900 flex flex-col">
-                  {/* Top Bar for File PDF Mode */}
-                  <div className="bg-gray-800/90 px-4 py-2 border-b border-gray-700/80 flex flex-wrap items-center justify-between text-xs text-gray-300 gap-2">
-                    <div className="flex items-center gap-2">
-                      <i className="fa-solid fa-file-pdf text-[#FF9F1C]"></i>
-                      <span className="font-mono text-[11px] text-amber-200 truncate max-w-xs">
-                        {selectedPdf.fileName || `${selectedPdf.title}.pdf`}
-                      </span>
-                      {selectedPdf.fileSize && (
-                        <span className="text-[10px] text-gray-400">({selectedPdf.fileSize})</span>
-                      )}
-                      <span className="bg-emerald-950/70 text-emerald-300 text-[10px] px-2 py-0.5 rounded border border-emerald-600/40">
-                        ☁️ Cloud PDF
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {selectedPdf.pdfFileUrl && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const url = base64ToBlobUrl(selectedPdf.pdfFileUrl!);
-                            window.open(url, '_blank');
-                          }}
-                          className="bg-gray-700 hover:bg-gray-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition"
-                        >
-                          <i className="fa-solid fa-arrow-up-right-from-square"></i>
-                          <span>Buka Layar Penuh</span>
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => downloadPdfFile(selectedPdf)}
-                        className="bg-amber-500 hover:bg-amber-600 text-gray-900 px-3 py-1 rounded-lg text-xs font-extrabold flex items-center gap-1 transition"
-                      >
-                        <i className="fa-solid fa-download"></i>
-                        <span>Unduh File</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="w-full h-[650px] sm:h-[800px] relative bg-gray-950 flex flex-col items-center justify-center">
-                    {cloudLoadingBookId === selectedPdf.id ? (
-                      <div className="p-8 text-center text-white space-y-4">
-                        <div className="w-16 h-16 rounded-full bg-amber-500/20 text-[#FF9F1C] flex items-center justify-center text-2xl animate-spin mx-auto">
-                          <i className="fa-solid fa-spinner"></i>
-                        </div>
-                        <h4 className="text-base font-bold">Mengunduh Dokumen PDF dari Cloud...</h4>
-                        <p className="text-xs text-gray-400 max-w-xs mx-auto">
-                          Sedang mengambil dan menyusun potongan data dokumen dari Cloud Firestore.
-                        </p>
-                      </div>
-                    ) : selectedPdf.pdfFileUrl ? (
-                      <object
-                        data={base64ToBlobUrl(selectedPdf.pdfFileUrl)}
-                        type="application/pdf"
-                        className="w-full h-full border-0"
-                      >
-                        <iframe
-                          src={base64ToBlobUrl(selectedPdf.pdfFileUrl)}
-                          title={selectedPdf.title}
-                          className="w-full h-full border-0"
-                        >
-                          <div className="p-8 text-center text-white space-y-4">
-                            <p>File PDF berhasil dimuat.</p>
-                            <button
-                              type="button"
-                              onClick={() => downloadPdfFile(selectedPdf)}
-                              className="bg-amber-500 text-black px-4 py-2 rounded-xl font-bold"
-                            >
-                              Unduh File PDF Sekarang
-                            </button>
-                          </div>
-                        </iframe>
-                      </object>
-                    ) : (
-                      <div className="p-8 text-center text-white space-y-4">
-                        <div className="w-16 h-16 rounded-full bg-amber-500/20 text-[#FF9F1C] flex items-center justify-center text-2xl mx-auto">
-                          <i className="fa-solid fa-cloud-arrow-down"></i>
-                        </div>
-                        <h4 className="text-base font-bold">Dokumen PDF Tersimpan di Cloud</h4>
-                        <p className="text-xs text-gray-400 max-w-xs mx-auto">
-                          Dokumen PDF ini diunggah oleh Admin dan siap diakses. Klik tombol di bawah untuk memuat isi dokumen langsung ke layar Anda.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => ensurePdfLoaded(selectedPdf)}
-                          className="bg-[#FF9F1C] hover:bg-amber-600 text-white px-5 py-2.5 rounded-xl font-extrabold text-xs shadow-lg inline-flex items-center gap-2 transition active:scale-95"
-                        >
-                          <i className="fa-solid fa-download"></i>
-                          <span>Muat File PDF Sekarang</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                /* View Mode: Scribd Multi-Page Vertical Continuous Scroll */
-                <div className="p-4 sm:p-8 max-h-[650px] overflow-y-auto bg-gray-700/60 flex flex-col items-center space-y-6">
-                  {selectedPdf.pages.map((page, pageIdx) => (
-                    <div
-                      key={pageIdx}
-                      className="bg-white rounded-xl scribd-shadow transition-all duration-300 relative overflow-hidden"
-                      style={{
-                        width: `${600 * (pdfZoom / 100)}px`,
-                        minHeight: `${780 * (pdfZoom / 100)}px`,
-                        maxWidth: '100%',
-                      }}
-                    >
-                      <div className="border-b border-gray-100 p-4 sm:p-6 bg-amber-50/40 flex justify-between items-center text-xs text-gray-400">
-                        <span className="font-bold text-[#FF9F1C]">Si Bunda MP-ASI Cookbook</span>
-                        <span className="font-mono">Hal. {pageIdx + 1}</span>
-                      </div>
-
-                      <div className="p-6 sm:p-8 space-y-4">
-                        <div className="flex items-center justify-between border-b border-pink-100 pb-3">
-                          <h3 className="text-base sm:text-xl font-black text-gray-800">{page.recipeTitle}</h3>
-                          <span className="bg-[#FFF0F4] text-[#FF7B9C] font-bold text-[10px] sm:text-xs px-2.5 py-1 rounded-full">
-                            {page.ageCategory}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 my-4">
-                          <img
-                            src={page.image}
-                            alt={page.recipeTitle}
-                            className="w-full h-40 sm:h-48 object-cover rounded-xl border border-gray-100"
-                          />
-                          <div className="bg-gray-50 p-4 rounded-xl text-xs space-y-2">
-                            <h4 className="font-extrabold text-gray-700 border-b pb-1">Bahan-Bahan Utama:</h4>
-                            <ul className="list-disc list-inside text-gray-600 space-y-1">
-                              {page.ingredients.map((ing, i) => (
-                                <li key={i}>{ing}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        </div>
-
-                        <div className="space-y-2 text-xs text-gray-700">
-                          <h4 className="font-extrabold text-gray-800">Langkah Pembuatan:</h4>
-                          <ol className="list-decimal list-inside space-y-1.5 text-gray-600 leading-relaxed">
-                            {page.steps.map((step, s) => (
-                              <li key={s}>{step}</li>
-                            ))}
-                          </ol>
-                        </div>
-
-                        <div className="mt-4 p-3 bg-teal-50 rounded-xl text-[11px] text-teal-800 border border-teal-100 flex items-start gap-2">
-                          <i className="fa-solid fa-lightbulb text-[#2EC4B6] text-sm mt-0.5"></i>
-                          <div>
-                            <span className="font-bold">Catatan Gizi Ahli: </span>
-                            <span>{page.nutritionNote}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="absolute bottom-0 inset-x-0 p-3 bg-gray-50 border-t border-gray-100 text-center text-[10px] text-gray-400 font-semibold">
-                        Platform Edukasi Gizi Si Bunda
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
             )}
           </section>
         )}
@@ -2349,9 +2198,6 @@ export default function App() {
                               type="button"
                               onClick={() => {
                                 setSelectedPdf(book);
-                                if (book.pdfFileUrl) {
-                                  setPdfViewMode('embed');
-                                }
                                 changePage('mpasi');
                               }}
                               className="text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition border border-amber-200"
@@ -2458,55 +2304,144 @@ export default function App() {
                 </div>
 
                 {/* 2. KELOLA HEADER GIF & KONTAK WA */}
-                <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm space-y-4">
-                  <div className="flex items-center gap-2 text-purple-700 font-bold text-base">
-                    <i className="fa-solid fa-photo-film"></i>
-                    <h4>Banner Animasi GIF Header (1280x720)</h4>
-                  </div>
-                  <p className="text-xs text-gray-500 leading-relaxed">
-                    Masukkan URL animasi GIF edukasi (1280x720 / 720p) yang ingin ditampilkan di banner atas seluruh halaman.
-                  </p>
+                <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm space-y-6">
+                  {/* Bagian 1: Header GIF Banner */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-purple-700 font-bold text-base">
+                        <i className="fa-solid fa-photo-film"></i>
+                        <h4>Banner Animasi GIF Header (1280x720)</h4>
+                      </div>
+                      <span className="text-[10px] bg-purple-50 text-purple-700 border border-purple-200 font-mono px-2 py-0.5 rounded">
+                        Rasio 16:9
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 leading-relaxed">
+                      Unggah file animasi GIF langsung atau masukkan URL banner untuk ditampilkan di bagian atas seluruh halaman.
+                    </p>
 
-                  <div className="space-y-2">
-                    <label className="block text-xs font-bold text-gray-700">URL Gambar / GIF Banner</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="url"
-                        value={customHeaderGif}
-                        onChange={(e) => setCustomHeaderGif(e.target.value)}
-                        placeholder="https://...link-gif-anda.gif"
-                        className="flex-grow text-xs p-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-purple-500 outline-none"
+                    {/* Pratinjau Langsung GIF */}
+                    <div className="relative w-full aspect-[16/9] max-h-40 rounded-2xl overflow-hidden border-2 border-purple-100 bg-gray-900 shadow-inner flex items-center justify-center">
+                      <img
+                        src={customHeaderGif || DEFAULT_HEADER_GIF}
+                        alt="Pratinjau Animasi GIF"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = FALLBACK_HEADER_BANNER;
+                        }}
                       />
+                      <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded backdrop-blur-xs font-mono">
+                        Pratinjau Aktif
+                      </div>
+                    </div>
+
+                    <input
+                      type="file"
+                      ref={headerGifFileInputRef}
+                      accept="image/gif,image/png,image/jpeg,image/webp"
+                      onChange={handleHeaderGifUpload}
+                      className="hidden"
+                    />
+
+                    <div className="flex flex-wrap gap-2 pt-1">
                       <button
                         type="button"
-                        onClick={() => handleSaveHeaderGif(customHeaderGif)}
-                        className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition whitespace-nowrap shadow"
+                        onClick={() => headerGifFileInputRef.current?.click()}
+                        className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 transition shadow"
                       >
-                        Simpan
+                        <i className="fa-solid fa-cloud-arrow-up"></i>
+                        <span>Unggah File GIF / Gambar Baru</span>
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={handleResetHeaderGif}
+                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-3 py-2 rounded-xl text-xs transition"
+                        title="Kembalikan ke animasi default"
+                      >
+                        Reset ke Standar
+                      </button>
+                    </div>
+
+                    <div className="space-y-1 pt-2">
+                      <label className="block text-[11px] font-bold text-gray-700">Atau Tempelkan URL Gambar / GIF Eksternal</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="url"
+                          value={customHeaderGif}
+                          onChange={(e) => setCustomHeaderGif(e.target.value)}
+                          placeholder="https://...link-gif-anda.gif"
+                          className="flex-grow text-xs p-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-purple-500 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveHeaderGif(customHeaderGif)}
+                          className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition whitespace-nowrap shadow"
+                        >
+                          Simpan URL
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-gray-100 space-y-2">
-                    <label className="block text-xs font-bold text-gray-700">Nomor WhatsApp Ahli Gizi</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={whatsappNumber}
-                        onChange={(e) => setWhatsappNumber(e.target.value)}
-                        placeholder="6281234567890"
-                        className="flex-grow text-xs p-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-purple-500 outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          localStorage.setItem('si_bunda_wa', whatsappNumber);
-                          showToast('Nomor WhatsApp berhasil diperbarui!');
-                        }}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition whitespace-nowrap shadow"
-                      >
-                        Simpan WA
-                      </button>
+                  {/* Bagian 2: Kontak WhatsApp Konsultan */}
+                  <div className="pt-4 border-t border-gray-100 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-emerald-700 font-bold text-base">
+                        <i className="fa-brands fa-whatsapp text-lg"></i>
+                        <h4>Nomor Kontak WhatsApp Konsultan</h4>
+                      </div>
+                      <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono px-2 py-0.5 rounded">
+                        Cloud Sync Aktif
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-gray-500 leading-relaxed">
+                      Nomor ini digunakan pada tombol konsultasi di halaman Beranda. Disimpan ke database cloud sehingga langsung aktif untuk semua pengguna di semua perangkat.
+                    </p>
+
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-gray-700">
+                        Nomor WhatsApp (Contoh: +62 852-6877-6637 atau 6285268776637)
+                      </label>
+                      <div className="flex flex-wrap sm:flex-nowrap gap-2">
+                        <input
+                          type="text"
+                          value={whatsappNumber}
+                          onChange={(e) => setWhatsappNumber(e.target.value)}
+                          placeholder="+62 852-6877-6637"
+                          className="flex-grow text-xs p-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-emerald-500 outline-none font-mono font-bold text-gray-800"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveWhatsAppNumber(whatsappNumber)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-4 py-2.5 rounded-xl text-xs transition whitespace-nowrap shadow flex items-center gap-1.5"
+                        >
+                          <i className="fa-solid fa-check"></i>
+                          <span>Simpan Nomor WA</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[11px] text-gray-500">
+                          Format link aktif:{' '}
+                          <code className="text-emerald-700 font-mono bg-emerald-50 px-1.5 py-0.5 rounded">
+                            wa.me/{whatsappNumber.replace(/\D/g, '').replace(/^0/, '62')}
+                          </code>
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const clean = whatsappNumber.replace(/\D/g, '').replace(/^0/, '62');
+                            window.open(`https://wa.me/${clean}?text=Halo%20Ahli%20Gizi%20Si%20Bunda`, '_blank');
+                          }}
+                          className="text-[11px] text-emerald-600 hover:text-emerald-800 font-bold flex items-center gap-1 hover:underline"
+                        >
+                          <i className="fa-solid fa-arrow-up-right-from-square"></i>
+                          <span>Uji Chat WhatsApp</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2909,7 +2844,7 @@ export default function App() {
                 <div className="text-center">
                   <i className="fa-solid fa-file-arrow-up text-3xl text-[#FF9F1C] mb-2 block"></i>
                   <span className="font-bold text-gray-800 text-xs block">Pilih File PDF dari Komputer / HP</span>
-                  <span className="text-[11px] text-gray-500">Mendukung file dokumen .pdf resmi (maksimal 15 MB)</span>
+                  <span className="text-[11px] text-gray-500">Mendukung file dokumen .pdf resmi hingga 3 MB - 5 MB (sinkronisasi cloud instan ke semua pengguna)</span>
                 </div>
 
                 <input

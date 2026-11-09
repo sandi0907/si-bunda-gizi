@@ -18,6 +18,14 @@
 
     <!-- Font Awesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Mozilla PDF.js for Universal Canvas-based Cross-Device PDF Rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+    </script>
   </head>
   <body class="min-h-screen flex flex-col justify-between antialiased selection:bg-[#FF7B9C] selection:text-white bg-[#FFFBF9] font-['Nunito',sans-serif] text-[#2D3748]">
     <div id="root"></div>

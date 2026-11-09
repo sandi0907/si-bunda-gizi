@@ -68,15 +68,57 @@ export const dbAddVisitorLog = async (logData: any, webhookUrl: string) => {
   }
 };
 
-export const dbSaveWebhook = async (url: string) => {
+export const dbSaveSettings = async (settings: {
+  googleSheetWebhook?: string;
+  whatsappNumber?: string;
+  headerGifUrl?: string;
+  customLogoUrl?: string;
+}) => {
   if (!db) return;
   try {
     if (authPromise) await authPromise;
     const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config');
-    await setDoc(docRef, { googleSheetWebhook: url }, { merge: true });
+    await setDoc(docRef, settings, { merge: true });
   } catch (e) {
-    console.warn('Save webhook error:', e);
+    console.warn('Save settings error:', e);
   }
+};
+
+export const dbSaveWebhook = async (url: string) => {
+  return dbSaveSettings({ googleSheetWebhook: url });
+};
+
+export const subscribeToSettings = (
+  callback: (settings: {
+    googleSheetWebhook?: string;
+    whatsappNumber?: string;
+    headerGifUrl?: string;
+    customLogoUrl?: string;
+  }) => void
+) => {
+  if (!db) return () => {};
+  try {
+    const settingsDoc = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config');
+    return onSnapshot(
+      settingsDoc,
+      (snap) => {
+        if (snap.exists()) {
+          callback(snap.data() as any);
+        }
+      },
+      (err) => console.warn('Firestore settings listener error:', err)
+    );
+  } catch {
+    return () => {};
+  }
+};
+
+export const subscribeToWebhookSettings = (callback: (url: string) => void) => {
+  return subscribeToSettings((settings) => {
+    if (settings.googleSheetWebhook) {
+      callback(settings.googleSheetWebhook);
+    }
+  });
 };
 
 export const dbSaveVideo = async (video: any) => {
@@ -123,24 +165,6 @@ export const subscribeToVisitorLogs = (callback: (logs: any[]) => void) => {
   }
 };
 
-export const subscribeToWebhookSettings = (callback: (url: string) => void) => {
-  if (!db) return () => {};
-  try {
-    const settingsDoc = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config');
-    return onSnapshot(
-      settingsDoc,
-      (snap) => {
-        if (snap.exists() && snap.data().googleSheetWebhook) {
-          callback(snap.data().googleSheetWebhook);
-        }
-      },
-      (err) => console.warn('Firestore settings listener error:', err)
-    );
-  } catch {
-    return () => {};
-  }
-};
-
 export const subscribeToVideos = (callback: (videos: any[]) => void) => {
   if (!db) return () => {};
   try {
@@ -175,9 +199,10 @@ export const dbSavePdfBook = async (
     const parentRef = doc(db, 'artifacts', appId, 'public', 'data', 'pdf_books', bookId);
 
     const pdfDataUrl = book.pdfFileUrl || '';
-    // Store up to 700KB inline for instant zero-latency loading across all devices
-    const CHUNK_SIZE = 400000;
-    const isLarge = pdfDataUrl.length > 700000;
+    // Store small documents (<400KB base64) directly in parent document
+    // For larger files (up to 3MB-5MB), slice into 300,000 char chunks to stay well below 1MB Firestore limit
+    const CHUNK_SIZE = 300000;
+    const isLarge = pdfDataUrl.length > 400000;
     const chunkCount = isLarge ? Math.ceil(pdfDataUrl.length / CHUNK_SIZE) : 0;
 
     // Save parent metadata document
@@ -197,20 +222,34 @@ export const dbSavePdfBook = async (
 
     if (pdfDataUrl && !isLarge) {
       firestoreData.pdfFileUrl = pdfDataUrl;
+    } else {
+      // Ensure large documents do not bloat the parent document
+      firestoreData.pdfFileUrl = '';
     }
 
     // Write parent document
+    if (onProgress) onProgress(15);
     await setDoc(parentRef, firestoreData, { merge: true });
-    if (onProgress) onProgress(isLarge ? 30 : 100);
+    if (onProgress) onProgress(isLarge ? 25 : 100);
 
-    // If larger than 700KB, write chunks in parallel
+    // If larger than 400KB, write chunks in parallel with progress
     if (isLarge && chunkCount > 0) {
+      let completedCount = 0;
       const chunkPromises = [];
+
       for (let i = 0; i < chunkCount; i++) {
         const chunk = pdfDataUrl.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
         const chunkRef = doc(db, 'artifacts', appId, 'public', 'data', 'pdf_books', bookId, 'chunks', String(i));
-        chunkPromises.push(setDoc(chunkRef, { index: i, data: chunk }));
+        const p = setDoc(chunkRef, { index: i, data: chunk, updatedAt: Date.now() }).then(() => {
+          completedCount++;
+          if (onProgress) {
+            const pct = Math.min(99, Math.round(25 + (completedCount / chunkCount) * 75));
+            onProgress(pct);
+          }
+        });
+        chunkPromises.push(p);
       }
+
       await Promise.all(chunkPromises);
       if (onProgress) onProgress(100);
     }
@@ -234,7 +273,9 @@ export const dbFetchPdfChunks = async (bookId: string): Promise<string | null> =
 
     const chunksCol = collection(db, 'artifacts', appId, 'public', 'data', 'pdf_books', String(bookId), 'chunks');
     const chunksSnap = await getDocs(chunksCol);
-    if (chunksSnap.empty) return null;
+    if (chunksSnap.empty) {
+      return data.pdfFileUrl || null;
+    }
 
     const chunksList: { index: number; data: string }[] = [];
     chunksSnap.forEach((d) => {
