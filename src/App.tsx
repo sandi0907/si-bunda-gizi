@@ -25,6 +25,7 @@ import {
 } from './utils/pdfStorage';
 import { PortraitReelCard } from './components/PortraitReelCard';
 import { PdfCanvasViewer } from './components/PdfCanvasViewer';
+import { Analytics } from '@vercel/analytics/react';
 
 const DEFAULT_LOGO_URL = '/assets/aistudio/logo_eduzi_2507d203.png';
 const DEFAULT_WA_NUMBER = '+62 852-6877-6637';
@@ -3038,6 +3039,7 @@ export default function App() {
           <span>{toastMessage}</span>
         </div>
       )}
+      <Analytics />
     </div>
   );
 }
